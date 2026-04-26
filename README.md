@@ -2,7 +2,7 @@
 
 Tommy Agent 是一个本地优先的 Agent 工作台示例项目，后端基于 FastAPI、LangGraph 和 SQLite，前端基于 Next.js 和 React。它提供流式对话、工具调用审批、会话状态、长期记忆提案、Context Pact、Skill 提案和运行过程检查面板。
 
-##2026.4.26:Vibe 7 小时出的，勿喷。。。慢慢加功能
+## 2026.4.26:Vibe 7 小时出的，勿喷。。。慢慢加功能
 
 ## 功能
 
