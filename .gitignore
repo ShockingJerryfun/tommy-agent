@@ -5,7 +5,15 @@
 backend/.env
 
 # Runtime data
-data/
+data/*
+!data/agents/
+data/agents/*
+!data/agents/default/
+data/agents/default/*
+!data/agents/default/DREAMS.md
+!data/agents/default/MEMORY.md
+!data/agents/default/SOUL.md
+!data/agents/default/USER.md
 backend/data/
 *.sqlite
 *.sqlite-shm
