@@ -1,0 +1,31 @@
+{
+  "name": "tommy-agent-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "AGENT_API_URL=http://127.0.0.1:8000 next dev -H 0.0.0.0",
+    "build": "next build",
+    "start": "AGENT_API_URL=http://127.0.0.1:8000 next start -H 0.0.0.0",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@microsoft/fetch-event-source": "2.0.1",
+    "@xyflow/react": "^12.10.2",
+    "lucide-react": "^1.11.0",
+    "mermaid": "^11.14.0",
+    "next": "15.5.15",
+    "react": "19.2.5",
+    "react-dom": "19.2.5",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.17",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "autoprefixer": "10.5.0",
+    "postcss": "8.5.10",
+    "tailwindcss": "3.4.19",
+    "typescript": "5.9.3"
+  }
+}
