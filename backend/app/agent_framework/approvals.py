@@ -7,7 +7,6 @@ from typing import Any
 
 from .tools import ToolRegistry
 
-
 APPROVAL_REQUIRED_TOOLS = {"write_local_file", "run_shell_command", "delegate_task"}
 
 DENIED_COMMAND_PATTERNS = (
@@ -76,7 +75,10 @@ def evaluate_tool_call(
 
 def command_is_dangerous(command: str) -> bool:
     normalized = " ".join(command.strip().split())
-    return any(re.search(pattern, normalized, flags=re.IGNORECASE) for pattern in DENIED_COMMAND_PATTERNS)
+    return any(
+        re.search(pattern, normalized, flags=re.IGNORECASE)
+        for pattern in DENIED_COMMAND_PATTERNS
+    )
 
 
 def assert_command_allowed(command: str) -> None:

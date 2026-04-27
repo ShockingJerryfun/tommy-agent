@@ -6,6 +6,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from .agent import build_agent_graph
 from .memory import build_thread_config, create_checkpointer
+from .store import SQLiteAgentStore
 from .tools import (
     ToolRegistry,
     get_current_time,
@@ -43,6 +44,17 @@ def run_delegate_task(
     agent_id: str = "default",
 ) -> dict[str, Any]:
     """Run a bounded read-only sub-agent and return its final response."""
+
+    if SQLiteAgentStore().run_stop_requested(session_id=session_id, run_id=parent_run_id):
+        return {
+            "status": "stopped",
+            "target_agent": target_agent,
+            "thread_id": "",
+            "parent_session_id": session_id,
+            "parent_run_id": parent_run_id,
+            "approval_id": approval_id,
+            "result": "",
+        }
 
     thread_id = f"sub-{session_id}-{approval_id}"
     graph = build_agent_graph(

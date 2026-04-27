@@ -4,6 +4,7 @@
 
 :root {
   color-scheme: light;
+  --font-inter: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 .dark {

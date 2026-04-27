@@ -16,8 +16,12 @@ from .state import AgentState
 from .store import SQLiteAgentStore
 from .tools import ToolRegistry, create_default_registry
 
-
 Route = Literal["action", "end"]
+ActionRoute = Literal["agent", "end"]
+
+
+class RunStopped(RuntimeError):
+    """Raised when a run has been explicitly stopped by the user."""
 
 
 def _tool_calls(message: Any) -> list[dict[str, Any]]:
@@ -27,10 +31,16 @@ def _tool_calls(message: Any) -> list[dict[str, Any]]:
 
 
 def should_continue(state: AgentState) -> Route:
+    if _run_stop_requested(state):
+        return "end"
     messages = state.get("messages", [])
     if not messages:
         return "end"
     return "action" if _tool_calls(messages[-1]) else "end"
+
+
+def should_continue_after_action(state: AgentState) -> ActionRoute:
+    return "end" if _run_stop_requested(state) else "agent"
 
 
 def _write_stream_event(payload: dict[str, Any]) -> None:
@@ -67,17 +77,55 @@ def _command_scope(metadata: dict[str, Any]) -> str:
     return "restricted"
 
 
+def _state_run_id(state: AgentState) -> str:
+    metadata = state.get("metadata", {})
+    if not isinstance(metadata, dict):
+        return ""
+    return str(metadata.get("run_id") or "")
+
+
+def _run_stop_requested(state: AgentState) -> bool:
+    metadata = state.get("metadata", {})
+    metadata = metadata if isinstance(metadata, dict) else {}
+    store = SQLiteAgentStore()
+    session_id = str(state.get("session_id") or "")
+    run_id = _state_run_id(state)
+    if store.run_stop_requested(session_id=session_id, run_id=run_id):
+        return True
+
+    parent_session_id = str(metadata.get("parent_session_id") or "")
+    parent_run_id = str(metadata.get("parent_run_id") or "")
+    return store.run_stop_requested(session_id=parent_session_id, run_id=parent_run_id)
+
+
+def _raise_if_stopped(state: AgentState) -> None:
+    if _run_stop_requested(state):
+        raise RunStopped("Run was stopped by the user.")
+
+
 def build_agent_graph(
     *,
     llm: Runnable | None = None,
     registry: ToolRegistry | None = None,
     checkpointer: Any | None = None,
+    async_model: bool = False,
 ):
     tool_registry = registry or create_default_registry()
     model = (llm or create_llm()).bind_tools(tool_registry.schemas())
 
     def agent_node(state: AgentState) -> dict[str, Any]:
+        _raise_if_stopped(state)
         response = model.invoke(messages_with_system_prompt(state))
+        _raise_if_stopped(state)
+        return _agent_response_update(response)
+
+    async def agent_node_async(state: AgentState) -> dict[str, Any]:
+        _raise_if_stopped(state)
+        response = await model.ainvoke(messages_with_system_prompt(state))
+        _raise_if_stopped(state)
+        return _agent_response_update(response)
+
+    def _agent_response_update(response: Any) -> dict[str, Any]:
         return {
             "messages": [response],
             "intermediate_steps": [
@@ -89,6 +137,7 @@ def build_agent_graph(
         }
 
     def action_node(state: AgentState) -> dict[str, Any]:
+        _raise_if_stopped(state)
         messages = state.get("messages", [])
         if not messages:
             return {"intermediate_steps": [{"node": "action", "status": "skipped"}]}
@@ -109,6 +158,7 @@ def build_agent_graph(
         agent_id = str(runtime_context.get("agent_id") or "default")
         run_id = str((runtime_context.get("metadata") or {}).get("run_id") or f"run-{session_id}")
         for index, call in enumerate(_tool_calls(messages[-1])):
+            _raise_if_stopped(state)
             name = call.get("name", "")
             args = call.get("args") or {}
             tool_call_id = call.get("id") or f"tool_call_{index}"
@@ -167,6 +217,7 @@ def build_agent_graph(
                 special_event = _special_tool_event(name, content)
                 if special_event:
                     _write_stream_event(special_event)
+            _raise_if_stopped(state)
 
             tool_messages.append(
                 ToolMessage(
@@ -180,16 +231,24 @@ def build_agent_graph(
                     "node": "action",
                     "tool": name,
                     "tool_call_id": tool_call_id,
-                    "status": "pending_approval" if decision.needs_approval and status == "ok" else status,
+                    "status": (
+                        "pending_approval"
+                        if decision.needs_approval and status == "ok"
+                        else status
+                    ),
                 }
             )
 
         return {"messages": tool_messages, "intermediate_steps": steps}
 
     graph = StateGraph(AgentState)
-    graph.add_node("agent", agent_node)
+    graph.add_node("agent", agent_node_async if async_model else agent_node)
     graph.add_node("action", action_node)
     graph.add_edge(START, "agent")
     graph.add_conditional_edges("agent", should_continue, {"action": "action", "end": END})
-    graph.add_edge("action", "agent")
+    graph.add_conditional_edges(
+        "action",
+        should_continue_after_action,
+        {"agent": "agent", "end": END},
+    )
     return graph.compile(checkpointer=checkpointer or create_checkpointer())

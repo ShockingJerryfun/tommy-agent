@@ -158,11 +158,29 @@ type ApiMessage = {
 
 type ApiRunEvent = {
   id: string;
+  run_id?: string;
   type: RunStep["type"];
   label: string;
   status: RunStep["status"];
   payload?: Record<string, unknown>;
+  sequence?: number;
   created_at: string;
+};
+
+type ApiRun = {
+  id: string;
+  session_id: string;
+  agent_id: string;
+  status: "queued" | "running" | "completed" | "cancelled" | "interrupted" | "error";
+  input: string;
+  metadata?: Record<string, unknown>;
+  assistant_message_id?: string | null;
+  cancel_requested?: boolean;
+  created_at: string;
+  started_at?: string | null;
+  updated_at: string;
+  finished_at?: string | null;
+  error?: string;
 };
 
 type ApiToolCall = {
@@ -179,6 +197,9 @@ type ApiSessionDetail = {
   messages: ApiMessage[];
   run_events: ApiRunEvent[];
   tool_calls: ApiToolCall[];
+  latest_run?: ApiRun | null;
+  active_run?: ApiRun | null;
+  runs?: ApiRun[];
   context_pact?: ContextPactView;
   skill_proposals?: SkillProposalView[];
   memory_proposals?: MemoryProposalView[];
@@ -262,6 +283,13 @@ function toRunStep(event: ApiRunEvent): RunStep {
   };
 }
 
+function maxRunEventSequence(events: ApiRunEvent[], runId: string) {
+  return events.reduce((max, event) => {
+    if (event.run_id && event.run_id !== runId) return max;
+    return typeof event.sequence === "number" ? Math.max(max, event.sequence) : max;
+  }, -1);
+}
+
 function attachTools(messages: ApiMessage[], tools: ApiToolCall[]): ChatMessage[] {
   const groupedTools = new Map<string, ToolCallView[]>();
   for (const tool of tools) {
@@ -318,8 +346,11 @@ export function AgentShell() {
   const [mobileSessionsOpen, setMobileSessionsOpen] = useState(false);
   const [mobileInspectorOpen, setMobileInspectorOpen] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const stopRequestedRef = useRef(false);
+  const currentRunIdRef = useRef<string | null>(null);
   const messagesRef = useRef<ChatMessage[]>([]);
   const stepsRef = useRef<RunStep[]>([]);
+  const [, setCurrentRunId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -378,7 +409,15 @@ export function AgentShell() {
     return nextSessions;
   }
 
+  function setActiveRunId(runId: string | null) {
+    currentRunIdRef.current = runId;
+    setCurrentRunId(runId);
+  }
+
   async function loadSession(nextSessionId: string) {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setActiveRunId(null);
     const detail = await apiJson<ApiSessionDetail>(`/api/sessions/${nextSessionId}`);
     const loadedMessages = attachTools(detail.messages, detail.tool_calls);
     const loadedSteps = detail.run_events.map(toRunStep);
@@ -395,6 +434,16 @@ export function AgentShell() {
     setSkills(detail.skills ?? []);
     setSkillProposals(detail.skill_proposals ?? []);
     setPendingApprovals(detail.pending_approvals ?? []);
+    const activeRun = detail.active_run;
+    if (activeRun && ["queued", "running"].includes(activeRun.status)) {
+      const afterSequence = maxRunEventSequence(detail.run_events, activeRun.id);
+      setActiveRunId(activeRun.id);
+      setIsStreaming(true);
+      setMemoryStatus("生成中，正在重新连接");
+      void subscribeRunEvents(activeRun.id, afterSequence >= 0 ? afterSequence : undefined);
+      return;
+    }
+    setIsStreaming(false);
     setMemoryStatus("Ready");
   }
 
@@ -484,7 +533,11 @@ export function AgentShell() {
   }
 
   async function selectSession(nextSessionId: string) {
-    if (nextSessionId === sessionId || isStreaming) return;
+    if (nextSessionId === sessionId) return;
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setIsStreaming(false);
+    setActiveRunId(null);
     await loadSession(nextSessionId);
   }
 
@@ -807,15 +860,150 @@ export function AgentShell() {
       setMemoryStatus(`Error: ${String(data.message ?? "Unknown error")}`);
       persistStep(createRunStep("error", "请求出错", "error"));
       setIsStreaming(false);
+      setActiveRunId(null);
+      return;
+    }
+
+    if (payload.type === "cancelled" || payload.type === "interrupted") {
+      setMemoryStatus("已停止生成，内容已保存");
+      setIsStreaming(false);
+      setActiveRunId(null);
+      persistStep(createRunStep("agent", "生成已停止", "done", data));
+      void refreshSessions();
+      return;
+    }
+
+    if (payload.type === "stopped") {
+      setMemoryStatus("已停止生成，内容已保存");
+      setIsStreaming(false);
+      setActiveRunId(null);
+      persistStep(createRunStep("agent", "生成已停止", "done", data));
+      void refreshSessions();
       return;
     }
 
     if (payload.type === "done") {
       setIsStreaming(false);
+      setActiveRunId(null);
       persistStep(createRunStep("done", "完成", "done"));
       updateSessionSummary(messagesRef.current);
       void refreshSessions();
       void refreshCurrentSession();
+    }
+  }
+
+  async function subscribeRunEvents(runId: string, afterSequence?: number) {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    stopRequestedRef.current = false;
+    setActiveRunId(runId);
+    setIsStreaming(true);
+
+    const query =
+      typeof afterSequence === "number" ? `?after_sequence=${encodeURIComponent(afterSequence)}` : "";
+
+    try {
+      await fetchEventSource(`${resolveApiBase()}/api/runs/${runId}/events${query}`, {
+        method: "GET",
+        signal: controller.signal,
+        onmessage(event) {
+          const parsed = JSON.parse(event.data) as AgentEvent;
+          handleAgentEvent(parsed);
+        },
+        onerror(error) {
+          if (controller.signal.aborted || stopRequestedRef.current) return;
+          setIsStreaming(false);
+          setMemoryStatus(`Stream error: ${String(error)}`);
+          throw error;
+        },
+        onclose() {
+          setIsStreaming(false);
+        },
+      });
+    } catch (error) {
+      if (!controller.signal.aborted && !stopRequestedRef.current) {
+        setIsStreaming(false);
+        setMemoryStatus(`Stream error: ${String(error)}`);
+      }
+    } finally {
+      if (abortRef.current === controller) {
+        abortRef.current = null;
+      }
+      if (stopRequestedRef.current) {
+        setIsStreaming(false);
+      }
+      stopRequestedRef.current = false;
+    }
+  }
+
+  async function streamLegacyMessage({
+    message,
+    nextMessages,
+    history = [],
+    resetThread = false,
+  }: {
+    message: string;
+    nextMessages: ChatMessage[];
+    history?: ChatMessage[];
+    resetThread?: boolean;
+  }) {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    stopRequestedRef.current = false;
+    setInput("");
+    setIsStreaming(true);
+    stepsRef.current = [createRunStep("user", "收到输入", "done")];
+    setSteps(stepsRef.current);
+    messagesRef.current = nextMessages;
+    setMessages(nextMessages);
+    updateSessionSummary(nextMessages);
+
+    try {
+      await fetchEventSource(`${resolveApiBase()}/api/chat/stream`, {
+        method: "POST",
+        signal: controller.signal,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: sessionId,
+          message,
+          reset_thread: resetThread,
+          metadata: {
+            frontend_settings: settings,
+          },
+          history: history
+            .filter((item) => item.role === "user" || item.role === "assistant")
+            .filter((item) => item.content.trim())
+            .map((item) => ({ role: item.role, content: item.content })),
+        }),
+        onmessage(event) {
+          const parsed = JSON.parse(event.data) as AgentEvent;
+          handleAgentEvent(parsed);
+        },
+        onerror(error) {
+          if (controller.signal.aborted || stopRequestedRef.current) return;
+          setIsStreaming(false);
+          setMemoryStatus(`Stream error: ${String(error)}`);
+          throw error;
+        },
+        onclose() {
+          setIsStreaming(false);
+        },
+      });
+    } catch (error) {
+      if (!controller.signal.aborted && !stopRequestedRef.current) {
+        setIsStreaming(false);
+        setMemoryStatus(`Stream error: ${String(error)}`);
+      }
+    } finally {
+      if (abortRef.current === controller) {
+        abortRef.current = null;
+      }
+      if (stopRequestedRef.current) {
+        setIsStreaming(false);
+      }
+      stopRequestedRef.current = false;
     }
   }
 
@@ -831,7 +1019,8 @@ export function AgentShell() {
     resetThread?: boolean;
   }) {
     abortRef.current?.abort();
-    abortRef.current = new AbortController();
+    stopRequestedRef.current = false;
+    setActiveRunId(null);
     setInput("");
     setIsStreaming(true);
     stepsRef.current = [createRunStep("user", "收到输入", "done")];
@@ -840,35 +1029,75 @@ export function AgentShell() {
     setMessages(nextMessages);
     updateSessionSummary(nextMessages);
 
-    await fetchEventSource(`${resolveApiBase()}/api/chat/stream`, {
-      method: "POST",
-      signal: abortRef.current.signal,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        session_id: sessionId,
+    const body = {
+      session_id: sessionId,
+      message,
+      reset_thread: resetThread,
+      metadata: {
+        frontend_settings: settings,
+      },
+      history: history
+        .filter((item) => item.role === "user" || item.role === "assistant")
+        .filter((item) => item.content.trim())
+        .map((item) => ({ role: item.role, content: item.content })),
+    };
+
+    try {
+      const run = await apiJson<{ run_id: string; status: string }>("/api/runs", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      setActiveRunId(run.run_id);
+      await subscribeRunEvents(run.run_id);
+    } catch (error) {
+      if (!String(error).includes("API 404") && !String(error).includes("API 405")) {
+        setIsStreaming(false);
+        setMemoryStatus(`Run error: ${String(error)}`);
+        return;
+      }
+      await streamLegacyMessage({
         message,
-        reset_thread: resetThread,
-        metadata: {
-          frontend_settings: settings,
-        },
-        history: history
-          .filter((item) => item.role === "user" || item.role === "assistant")
-          .filter((item) => item.content.trim())
-          .map((item) => ({ role: item.role, content: item.content })),
-      }),
-      onmessage(event) {
-        const parsed = JSON.parse(event.data) as AgentEvent;
-        handleAgentEvent(parsed);
-      },
-      onerror(error) {
-        setIsStreaming(false);
-        setMemoryStatus(`Stream error: ${String(error)}`);
-        throw error;
-      },
-      onclose() {
-        setIsStreaming(false);
-      },
-    });
+        nextMessages,
+        history,
+        resetThread,
+      });
+    }
+  }
+
+  async function stopStreaming() {
+    if (!sessionId || !isStreaming) return;
+    stopRequestedRef.current = true;
+    const runId = currentRunIdRef.current;
+    if (runId) {
+      try {
+        await apiJson<{ run: ApiRun }>(`/api/runs/${runId}/cancel`, {
+          method: "POST",
+        });
+      } catch {
+        try {
+          await apiJson<{ status: string }>(`/api/sessions/${sessionId}/stop`, {
+            method: "POST",
+            body: JSON.stringify({ run_id: runId }),
+          });
+        } catch {
+          // Local UI should still stop even if the stop endpoint is unavailable.
+        }
+      }
+    } else {
+      try {
+        await apiJson<{ status: string }>(`/api/sessions/${sessionId}/stop`, {
+          method: "POST",
+        });
+      } catch {
+        // Local UI should still stop even if the legacy stop endpoint is unavailable.
+      }
+    }
+    abortRef.current?.abort();
+    setActiveRunId(null);
+    setIsStreaming(false);
+    setMemoryStatus("已停止生成，内容已保存");
+    persistStep(createRunStep("agent", "已停止生成", "done"));
+    void refreshSessions();
   }
 
   async function sendMessage() {
@@ -999,6 +1228,7 @@ export function AgentShell() {
           <ChatComposer
             value={input}
             disabled={isStreaming}
+            isStreaming={isStreaming}
             commandScope={settings.commandScope}
             workingDirectory={settings.workingDirectory}
             onChange={setInput}
@@ -1007,6 +1237,7 @@ export function AgentShell() {
               updateSettings({ ...settings, workingDirectory })
             }
             onSubmit={sendMessage}
+            onStop={stopStreaming}
           />
         </div>
 
@@ -1308,12 +1539,11 @@ function MobileSessionDrawer({
                 >
                   <button
                     type="button"
-                    disabled={isStreaming}
                     onClick={() => {
                       onSelectSession(session.id);
                       onClose();
                     }}
-                    className="min-h-[4.25rem] min-w-0 flex-1 px-3.5 py-2.5 text-left disabled:cursor-not-allowed disabled:opacity-50"
+                    className="min-h-[4.25rem] min-w-0 flex-1 px-3.5 py-2.5 text-left"
                   >
                     <p className="truncate text-[14px] font-medium text-slate-800 dark:text-slate-100">
                       {session.title}

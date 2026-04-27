@@ -424,6 +424,9 @@ def run_shell_command(
     """Run an approved shell command inside the configured workspace root."""
 
     _require_approval("run_shell_command")
+    from .approvals import assert_command_allowed
+
+    assert_command_allowed(command)
     working_directory = _resolve_workspace_path(cwd)
     if not working_directory.is_dir():
         raise NotADirectoryError(f"Not a directory: {cwd}")
@@ -527,14 +530,28 @@ def delegate_task(task: str, target_agent: str = "researcher", reason: str = "")
 
     context = _runtime_context()
     if context.get("approval_granted"):
+        session_id = str(context.get("session_id") or "")
+        parent_run_id = str((context.get("metadata") or {}).get("run_id") or "")
+        if SQLiteAgentStore().run_stop_requested(session_id=session_id, run_id=parent_run_id):
+            return json.dumps(
+                {
+                    "status": "stopped",
+                    "target_agent": target_agent,
+                    "session_id": session_id,
+                    "parent_run_id": parent_run_id,
+                    "message": "Delegation was not started because the run was stopped.",
+                },
+                ensure_ascii=False,
+                default=str,
+            )
         from .orchestrator import run_delegate_task
 
         result = run_delegate_task(
             task=task,
             target_agent=target_agent,
             reason=reason,
-            session_id=str(context.get("session_id") or ""),
-            parent_run_id=str((context.get("metadata") or {}).get("run_id") or ""),
+            session_id=session_id,
+            parent_run_id=parent_run_id,
             approval_id=str(context.get("approval_id") or "unrestricted"),
             agent_id=str(context.get("agent_id") or "default"),
         )

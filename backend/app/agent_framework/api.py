@@ -1,24 +1,24 @@
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from langchain_core.messages import AIMessage, HumanMessage
 from pydantic import BaseModel, Field
 
 from .agent import build_agent_graph
 from .approvals import execute_approved_action
-from .compaction import compact_transcript_records, should_compact
+from .compaction import compact_transcript_records
 from .context import merge_context_pact, normalize_context_pact
-from .events import AgentEvent, done_event, error_event, format_sse, map_stream_part
-from .memory import DATA_ROOT, LocalMemoryStore, build_thread_config, create_async_checkpointer
+from .events import format_sse
+from .memory import DATA_ROOT, LocalMemoryStore, create_async_checkpointer
+from .runs import RunCreatePayload, RunManager
 from .skills import SkillCatalog, SkillProposal
 from .store import SQLiteAgentStore
 from .tools import create_default_registry
@@ -48,6 +48,9 @@ class SessionDetail(BaseModel):
     messages: list[dict[str, Any]]
     run_events: list[dict[str, Any]]
     tool_calls: list[dict[str, Any]]
+    latest_run: dict[str, Any] | None = None
+    active_run: dict[str, Any] | None = None
+    runs: list[dict[str, Any]] = Field(default_factory=list)
     context_pact: dict[str, Any] = Field(default_factory=dict)
     skill_proposals: list[dict[str, Any]] = Field(default_factory=list)
     memory_proposals: list[dict[str, Any]] = Field(default_factory=list)
@@ -61,13 +64,27 @@ class ChatStreamRequest(BaseModel):
     message: str = Field(..., min_length=1)
     agent_id: str = Field(default="default")
     metadata: dict[str, Any] = Field(default_factory=dict)
-    history: list["ChatHistoryMessage"] = Field(default_factory=list)
+    history: list[ChatHistoryMessage] = Field(default_factory=list)
     reset_thread: bool = Field(default=False)
 
 
 class ChatHistoryMessage(BaseModel):
     role: str = Field(..., pattern="^(user|assistant)$")
     content: str = Field(default="")
+
+
+class RunCreateRequest(BaseModel):
+    session_id: str = Field(..., min_length=1)
+    message: str = Field(..., min_length=1)
+    agent_id: str = Field(default="default")
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    history: list[ChatHistoryMessage] = Field(default_factory=list)
+    reset_thread: bool = Field(default=False)
+
+
+class RunCreateResponse(BaseModel):
+    run_id: str
+    status: str
 
 
 class MemorySearchResponse(BaseModel):
@@ -108,6 +125,11 @@ class CompactSessionRequest(BaseModel):
     keep_recent: int = Field(default=18, ge=4, le=80)
 
 
+class StopSessionRequest(BaseModel):
+    run_id: str | None = None
+    reason: str = Field(default="用户停止了本次运行")
+
+
 def cors_origins() -> list[str]:
     configured = os.getenv("FRONTEND_CORS_ORIGINS", "")
     origins = [origin.strip() for origin in configured.split(",") if origin.strip()]
@@ -116,7 +138,30 @@ def cors_origins() -> list[str]:
     return ["http://localhost:3000", "http://127.0.0.1:3000"]
 
 
-app = FastAPI(title="Tommy Agent Framework", version="0.1.0")
+_graph = None
+_agent_store = SQLiteAgentStore()
+
+
+async def get_graph():
+    global _graph
+    if _graph is None:
+        _graph = build_agent_graph(
+            checkpointer=await create_async_checkpointer(),
+            async_model=True,
+        )
+    return _graph
+
+
+_run_manager = RunManager(store=_agent_store, graph_factory=get_graph)
+
+
+@asynccontextmanager
+async def _app_lifespan(app: FastAPI):
+    await _run_manager.reconcile_orphan_inflight_runs()
+    yield
+
+
+app = FastAPI(title="Tommy Agent Framework", version="0.1.0", lifespan=_app_lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins(),
@@ -132,15 +177,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-_graph = None
-_agent_store = SQLiteAgentStore()
-
-
-async def get_graph():
-    global _graph
-    if _graph is None:
-        _graph = build_agent_graph(checkpointer=await create_async_checkpointer())
-    return _graph
 
 
 @app.post("/api/sessions")
@@ -176,6 +212,7 @@ async def get_session(session_id: str) -> SessionDetail:
     session = _agent_store.get_session(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
+    await _run_manager.reconcile_orphan_inflight_runs(session_id)
     messages = [
         {
             "id": message.id,
@@ -192,6 +229,9 @@ async def get_session(session_id: str) -> SessionDetail:
         messages=messages,
         run_events=_agent_store.list_run_events(session_id),
         tool_calls=_agent_store.list_tool_calls(session_id),
+        latest_run=_agent_store.get_latest_run(session_id),
+        active_run=_agent_store.get_active_run(session_id),
+        runs=_agent_store.list_runs(session_id),
         context_pact=normalize_context_pact(
             _agent_store.get_context_pact(session_id, agent_id=session.get("agent_id", "default"))
         ),
@@ -234,357 +274,132 @@ async def delete_session(session_id: str) -> dict[str, str]:
     return {"status": "deleted"}
 
 
-def _event_to_run_step(event: AgentEvent) -> tuple[str, str, str]:
-    data = event.data
-    if event.type == "tool_start":
-        return "tool", f"{data.get('tool', '工具')} 运行中", "running"
-    if event.type == "tool_end":
-        failed = str(data.get("status", "ok")) == "error"
-        return (
-            "tool",
-            f"{data.get('tool', '工具')} {'失败' if failed else '完成'}",
-            "error" if failed else "done",
-        )
-    if event.type == "node_end":
-        updates = data.get("updates") if isinstance(data.get("updates"), list) else []
-        if "action" in updates:
-            return "agent", "工具调用完成", "done"
-        if "agent" in updates:
-            return "agent", "回复已更新", "done"
-        return "agent", "状态已更新", "done"
-    if event.type == "error":
-        return "error", "请求出错", "error"
-    if event.type == "done":
-        return "done", "完成", "done"
-    if event.type == "skill":
-        proposal = data.get("proposal") if isinstance(data.get("proposal"), dict) else {}
-        label = f"Skill {proposal.get('name') or data.get('name') or 'proposal'}"
-        return "skill", label, "done"
-    if event.type == "pact":
-        return "pact", "上下文 Pact 已更新", "done"
-    if event.type == "delegate":
-        return "delegate", f"委派给 {data.get('target_agent', 'agent')}", "running"
-    if event.type == "compaction":
-        return "compaction", "会话已压缩", "done"
-    if event.type == "approval_pending":
-        approval = data.get("approval") if isinstance(data.get("approval"), dict) else {}
-        return "approval", f"等待审批：{approval.get('tool_name', '工具')}", "running"
-    if event.type == "approval_resolved":
-        approval = data.get("approval") if isinstance(data.get("approval"), dict) else {}
-        failed = str(approval.get("status") or "") in {"failed", "rejected"}
-        return "approval", "审批已处理", "error" if failed else "done"
-    if event.type == "subagent_start":
-        return "subagent", f"子 Agent {data.get('target_agent', '')} 启动", "running"
-    if event.type == "subagent_end":
-        return "subagent", f"子 Agent {data.get('target_agent', '')} 完成", "done"
-    return "agent", event.type, "done"
-
-
-def _extract_memory_request(message: str) -> str | None:
-    normalized = message.strip()
-    prefixes = ("请记住", "记住", "帮我记住", "remember that", "please remember")
-    for prefix in prefixes:
-        if normalized.lower().startswith(prefix.lower()):
-            return normalized[len(prefix) :].strip(" ：:，,。")
-    return None
-
-
-async def _stream_chat(request: ChatStreamRequest) -> AsyncIterator[str]:
-    memory_store = LocalMemoryStore(agent_id=request.agent_id)
-    memory_store.ensure_layout()
-    _agent_store.ensure_session(request.session_id, agent_id=request.agent_id)
-    graph = await get_graph()
-    if request.reset_thread:
-        try:
-            await graph.checkpointer.adelete_thread(request.session_id)
-        except Exception:
-            pass
-        _agent_store.reset_session_content(
-            request.session_id,
-            messages=[
-                {"role": item.role, "content": item.content}
-                for item in request.history
-                if item.content
-            ],
-        )
-
-    run_id = f"run-{uuid4().hex}"
-    memory_store.append_session_event(
-        request.session_id,
-        {"role": "user", "content": request.message},
-    )
-    _agent_store.append_message(
-        request.session_id,
-        role="user",
-        content=request.message,
-        metadata={
-            "source": "chat_stream",
-            "run_id": run_id,
-            "frontend": request.metadata.get("frontend_settings"),
-        },
-    )
-    memory_candidate = _extract_memory_request(request.message)
-    if memory_candidate:
-        proposal = _agent_store.create_memory(
-            agent_id=request.agent_id,
-            content=memory_candidate,
-            status="proposed",
-            source_session_id=request.session_id,
-            metadata={"source": "explicit_user_request"},
-        )
-        memory_event = AgentEvent(
-            type="memory",
-            data={
-                "status": "proposed",
-                "proposal": proposal,
-                "message": "已生成记忆提案，确认后才会写入长期记忆。",
-            },
-        )
-        _agent_store.append_run_event(
-            request.session_id,
-            run_id=run_id,
-            type="memory",
-            label="记忆提案已创建",
-            status="done",
-            payload=memory_event.data,
-        )
-        yield format_sse(memory_event)
-    stored_for_compaction = _agent_store.list_messages(request.session_id)
-    recent_compactions = _agent_store.list_compaction_runs(request.session_id, limit=1)
-    last_compacted_count = (
-        int(recent_compactions[0].get("message_count") or 0)
-        if recent_compactions
-        else 0
-    )
-    if should_compact(stored_for_compaction, max_messages=48) and len(stored_for_compaction) >= last_compacted_count + 12:
-        compaction = compact_transcript_records(stored_for_compaction, keep_recent=18)
-        if compaction.summary:
-            _agent_store.set_session_summary(request.session_id, compaction.summary)
-            current_pact = _agent_store.get_context_pact(request.session_id, agent_id=request.agent_id)
-            pact = merge_context_pact(current_pact, {"summary": compaction.summary})
-            _agent_store.upsert_context_pact(request.session_id, agent_id=request.agent_id, pact=pact)
-            record = _agent_store.append_compaction_run(
-                request.session_id,
-                run_id=run_id,
-                summary=compaction.summary,
-                message_count=len(stored_for_compaction),
-                kept_messages=len(compaction.recent_tail),
-                metadata={"trigger": "chat_stream_threshold"},
-            )
-            compaction_event = AgentEvent(
-                type="compaction",
-                data={"compaction": record, "pact": pact},
-            )
-            step_type, label, status = _event_to_run_step(compaction_event)
-            _agent_store.append_run_event(
-                request.session_id,
-                run_id=run_id,
-                type=step_type,
-                label=label,
-                status=status,
-                payload=compaction_event.data,
-            )
-            yield format_sse(compaction_event)
-    _agent_store.append_run_event(
-        request.session_id,
-        run_id=run_id,
-        type="user",
-        label="收到输入",
-        status="done",
-        payload={"content": request.message},
-    )
-
-    history_messages = []
-    if request.history:
-        for item in request.history:
-            if not item.content:
-                continue
-            if item.role == "assistant":
-                history_messages.append(AIMessage(content=item.content))
-            else:
-                history_messages.append(HumanMessage(content=item.content))
-    else:
-        stored_messages = _agent_store.list_messages(request.session_id, limit=24)
-        for item in stored_messages:
-            if not item.content or item.content == request.message:
-                continue
-            if item.role == "assistant":
-                history_messages.append(AIMessage(content=item.content))
-            elif item.role == "user":
-                history_messages.append(HumanMessage(content=item.content))
-
-    inputs = {
-        "session_id": request.session_id,
-        "agent_id": request.agent_id,
-        "metadata": {**request.metadata, "run_id": run_id},
-        "messages": [*history_messages, HumanMessage(content=request.message)],
-    }
-    config = build_thread_config(request.session_id)
-    assistant_tokens: list[str] = []
-    assistant_message_parts: list[dict[str, Any]] = []
-
-    def append_text_part(content: str) -> None:
-        if not content:
-            return
-        if assistant_message_parts and assistant_message_parts[-1].get("type") == "text":
-            assistant_message_parts[-1]["content"] = (
-                str(assistant_message_parts[-1].get("content", "")) + content
-            )
-            return
-        assistant_message_parts.append(
-            {"id": f"text-{uuid4().hex}", "type": "text", "content": content}
-        )
-
-    def upsert_tool_part(tool: dict[str, Any]) -> None:
-        tool_id = str(tool.get("id") or tool.get("tool_call_id") or uuid4().hex)
-        normalized = {
-            "id": tool_id,
-            "type": "tool",
-            "tool": {
-                "id": tool_id,
-                "name": str(tool.get("name") or tool.get("tool") or "tool"),
-                "status": str(tool.get("status") or "running"),
-                "summary": str(tool.get("summary") or ""),
-            },
-        }
-        for index, part in enumerate(assistant_message_parts):
-            if part.get("type") == "tool" and (part.get("tool") or {}).get("id") == tool_id:
-                existing_tool = dict(part.get("tool") or {})
-                assistant_message_parts[index] = {
-                    **part,
-                    "tool": {**existing_tool, **normalized["tool"]},
-                }
-                return
-        assistant_message_parts.append(normalized)
-
-    try:
-        async for part in graph.astream(
-            inputs,
-            config=config,
-            stream_mode=["messages", "updates", "custom"],
-        ):
-            event = map_stream_part(part)
-            if event is None:
-                continue
-            if event.type == "token":
-                token = str(event.data.get("content", ""))
-                assistant_tokens.append(token)
-                append_text_part(token)
-            elif event.type in {
-                "tool_start",
-                "tool_end",
-                "node_end",
-                "skill",
-                "pact",
-                "delegate",
-                "compaction",
-                "approval_pending",
-                "approval_resolved",
-                "subagent_start",
-                "subagent_end",
-            }:
-                step_type, label, status = _event_to_run_step(event)
-                _agent_store.append_run_event(
-                    request.session_id,
-                    run_id=run_id,
-                    type=step_type,
-                    label=label,
-                    status=status,
-                    payload=event.data,
-                )
-            if event.type == "tool_start":
-                tool_call_id = str(event.data.get("tool_call_id") or event.data.get("run_id") or "tool")
-                args = event.data.get("args") if isinstance(event.data.get("args"), dict) else {}
-                upsert_tool_part(
-                    {
-                        "id": tool_call_id,
-                        "tool": event.data.get("tool", "tool"),
-                        "status": "running",
-                        "summary": json.dumps(args, ensure_ascii=False) if args else "正在运行…",
-                    }
-                )
-                _agent_store.upsert_tool_call(
-                    request.session_id,
-                    run_id=run_id,
-                    tool_call_id=tool_call_id,
-                    name=str(event.data.get("tool", "tool")),
-                    status="running",
-                    args=args,
-                )
-            elif event.type == "tool_end":
-                tool_call_id = str(event.data.get("tool_call_id") or event.data.get("run_id") or "tool")
-                status = "error" if str(event.data.get("status", "ok")) == "error" else "done"
-                result = str(event.data.get("content") or event.data.get("output") or "")
-                upsert_tool_part(
-                    {
-                        "id": tool_call_id,
-                        "tool": event.data.get("tool", "tool"),
-                        "status": status,
-                        "summary": result,
-                    }
-                )
-                _agent_store.upsert_tool_call(
-                    request.session_id,
-                    run_id=run_id,
-                    tool_call_id=tool_call_id,
-                    name=str(event.data.get("tool", "tool")),
-                    status=status,
-                    result=result,
-                )
-            yield format_sse(event)
-        assistant_content = "".join(assistant_tokens)
-        if assistant_content:
-            _agent_store.append_message(
-                request.session_id,
-                role="assistant",
-                content=assistant_content,
-                metadata={
-                    "source": "chat_stream",
-                    "run_id": run_id,
-                    "parts": assistant_message_parts,
-                },
-            )
-        memory_store.append_session_event(
-            request.session_id,
-            {"role": "assistant", "status": "done", "content": assistant_content},
-        )
-        final_event = done_event()
-        step_type, label, status = _event_to_run_step(final_event)
-        _agent_store.append_run_event(
-            request.session_id,
-            run_id=run_id,
-            type=step_type,
-            label=label,
-            status=status,
-            payload=final_event.data,
-        )
-        yield format_sse(final_event)
-    except Exception as exc:  # noqa: BLE001 - API streams errors as client-visible SSE.
-        event = error_event(exc)
-        step_type, label, status = _event_to_run_step(event)
-        _agent_store.append_run_event(
-            request.session_id,
-            run_id=run_id,
-            type=step_type,
-            label=label,
-            status=status,
-            payload=event.data,
-        )
-        yield format_sse(event)
-        final_event = done_event()
-        yield format_sse(final_event)
-
-
 @app.post("/api/chat/stream")
 async def chat_stream(request: ChatStreamRequest) -> StreamingResponse:
+    """Same semantics as POST /api/runs + GET /api/runs/{id}/events, for legacy EventSource clients."""
+    meta = dict(request.metadata)
+    meta["transport"] = "chat_stream"
+    payload = RunCreatePayload(
+        session_id=request.session_id,
+        message=request.message,
+        agent_id=request.agent_id,
+        metadata=meta,
+        history=[
+            {"role": item.role, "content": item.content}
+            for item in request.history
+            if item.content
+        ],
+        reset_thread=request.reset_thread,
+    )
+    run = await _run_manager.create_and_start_run(payload)
+    rid = str(run["id"])
+
+    async def event_iterator() -> AsyncIterator[str]:
+        async for event in _run_manager.stream_run_events(rid):
+            yield format_sse(event)
+
     return StreamingResponse(
-        _stream_chat(request),
+        event_iterator(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@app.post("/api/runs")
+async def create_run(request: RunCreateRequest) -> RunCreateResponse:
+    run = await _run_manager.create_and_start_run(
+        RunCreatePayload(
+            session_id=request.session_id,
+            message=request.message,
+            agent_id=request.agent_id,
+            metadata=request.metadata,
+            history=[
+                {"role": item.role, "content": item.content}
+                for item in request.history
+                if item.content
+            ],
+            reset_thread=request.reset_thread,
+        )
+    )
+    return RunCreateResponse(run_id=str(run["id"]), status=str(run["status"]))
+
+
+@app.get("/api/runs/{run_id}")
+async def get_run(run_id: str) -> dict[str, Any]:
+    run = _agent_store.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return {"run": run}
+
+
+@app.get("/api/runs/{run_id}/events")
+async def stream_run_events(
+    run_id: str,
+    after_sequence: int | None = None,
+) -> StreamingResponse:
+    run = _agent_store.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    await _run_manager.reconcile_orphan_inflight_runs(str(run["session_id"]))
+
+    async def event_iterator() -> AsyncIterator[str]:
+        async for event in _run_manager.stream_run_events(run_id, after_sequence=after_sequence):
+            yield format_sse(event)
+
+    return StreamingResponse(
+        event_iterator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.post("/api/runs/{run_id}/cancel")
+async def cancel_run(run_id: str) -> dict[str, Any]:
+    run = await _run_manager.cancel_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return {"run": run}
+
+
+@app.post("/api/sessions/{session_id}/stop")
+async def stop_session(
+    session_id: str,
+    request: StopSessionRequest | None = None,
+) -> dict[str, Any]:
+    payload = request or StopSessionRequest()
+    await _run_manager.reconcile_orphan_inflight_runs(session_id)
+    runs = _agent_store.request_run_stop(
+        session_id,
+        run_id=payload.run_id,
+        reason=payload.reason,
+    )
+    run_cancelled = None
+    target_run_id = payload.run_id
+    if target_run_id is None:
+        active_run = _agent_store.get_active_run(session_id)
+        target_run_id = str(active_run["id"]) if active_run else None
+    if target_run_id:
+        run_cancelled = await _run_manager.cancel_run(target_run_id)
+    for run in runs:
+        _agent_store.append_run_event(
+            session_id,
+            run_id=str(run["id"]),
+            type="done",
+            label="已停止",
+            status="done",
+            payload={"status": "stopped", "reason": payload.reason},
+        )
+    return {
+        "status": "stopping" if runs or run_cancelled else "idle",
+        "runs": runs,
+        "run": run_cancelled,
+    }
 
 
 @app.get("/api/memory")
@@ -687,7 +502,10 @@ async def reject_skill_proposal(proposal_id: str, agent_id: str = "default") -> 
 async def read_skill(skill_path: str, agent_id: str = "default") -> dict[str, str]:
     catalog = SkillCatalog(agent_id=agent_id, store=_agent_store)
     try:
-        return {"path": catalog.normalize_relative_path(skill_path), "content": catalog.read_skill(skill_path)}
+        return {
+            "path": catalog.normalize_relative_path(skill_path),
+            "content": catalog.read_skill(skill_path),
+        }
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PermissionError as exc:
@@ -757,12 +575,28 @@ async def approve_action(approval_id: str, agent_id: str = "default") -> dict[st
     if approval["status"] != "pending":
         raise HTTPException(status_code=409, detail=f"Approval is already {approval['status']}")
 
+    run_id = str(approval["run_id"])
+    session_id = str(approval["session_id"])
+    if _agent_store.run_stop_requested(session_id=session_id, run_id=run_id):
+        rejected = _agent_store.resolve_approval_request(
+            approval_id,
+            status="rejected",
+            error="Run was stopped by user",
+        )
+        _agent_store.append_run_event(
+            session_id,
+            run_id=run_id,
+            type="approval",
+            label=f"运行已停止，未执行：{approval['tool_name']}",
+            status="error",
+            payload={"approval": rejected},
+        )
+        raise HTTPException(status_code=409, detail="Run was stopped; approval was not executed.")
+
     approved = _agent_store.resolve_approval_request(approval_id, status="approved")
     if approved is None:
         raise HTTPException(status_code=404, detail="Approval request not found")
 
-    run_id = str(approval["run_id"])
-    session_id = str(approval["session_id"])
     _agent_store.append_run_event(
         session_id,
         run_id=run_id,
@@ -773,6 +607,8 @@ async def approve_action(approval_id: str, agent_id: str = "default") -> dict[st
     )
 
     try:
+        if _agent_store.run_stop_requested(session_id=session_id, run_id=run_id):
+            raise RuntimeError("Run was stopped before the approved action could execute.")
         if approval["tool_name"] == "delegate_task":
             args = approval.get("args") or {}
             _agent_store.append_run_event(
@@ -781,7 +617,10 @@ async def approve_action(approval_id: str, agent_id: str = "default") -> dict[st
                 type="subagent",
                 label=f"子 Agent {args.get('target_agent', 'researcher')} 启动",
                 status="running",
-                payload={"approval": approval, "target_agent": args.get("target_agent", "researcher")},
+                payload={
+                    "approval": approval,
+                    "target_agent": args.get("target_agent", "researcher"),
+                },
             )
         result = execute_approved_action(
             approval,

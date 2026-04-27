@@ -29,19 +29,15 @@ export function SessionSidebar({
       {/* ── Brand header ── */}
       <div className="border-b border-slate-950/[0.06] px-5 py-4 dark:border-white/[0.07]">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-slate-900 to-slate-600 shadow-sm dark:from-slate-600 dark:to-slate-400">
-            <svg
-              className="h-[18px] w-[18px] text-white"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.9"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M12 2a7 7 0 0 1 7 7c0 2.5-1.3 4.7-3.3 6L17 21H7l1.3-6A7 7 0 0 1 5 9a7 7 0 0 1 7-7z" />
-              <path d="M9 17h6" />
-            </svg>
+          <div className="relative h-9 w-9 flex-shrink-0 overflow-hidden rounded-xl shadow-sm ring-1 ring-black/5 dark:ring-white/10">
+            <img
+              src="/tommy-avatar.svg"
+              alt="Tommy Agent 标识"
+              width={36}
+              height={36}
+              className="h-full w-full object-cover"
+              draggable={false}
+            />
           </div>
           <div className="min-w-0">
             <p className="text-sm font-semibold leading-tight tracking-tight">
@@ -87,8 +83,7 @@ export function SessionSidebar({
                 <button
                   type="button"
                   onClick={() => onSelectSession(session.id)}
-                  disabled={isStreaming}
-                  className="min-w-0 flex-1 px-3.5 py-3 text-left disabled:cursor-not-allowed"
+                  className="min-w-0 flex-1 px-3.5 py-3 text-left"
                 >
                   <p className="truncate text-[13px] font-medium text-slate-700 dark:text-slate-200">
                     {session.title}

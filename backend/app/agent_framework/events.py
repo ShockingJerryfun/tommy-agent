@@ -5,7 +5,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-
 EventType = Literal[
     "token",
     "tool_start",
@@ -20,6 +19,9 @@ EventType = Literal[
     "approval_resolved",
     "subagent_start",
     "subagent_end",
+    "stopped",
+    "cancelled",
+    "interrupted",
     "error",
     "done",
 ]
@@ -37,6 +39,14 @@ def format_sse(event: AgentEvent) -> str:
 
 def done_event() -> AgentEvent:
     return AgentEvent(type="done", data={"status": "done"})
+
+
+def stopped_event(reason: str = "用户已停止本次运行") -> AgentEvent:
+    return AgentEvent(type="stopped", data={"status": "stopped", "reason": reason})
+
+
+def cancelled_event(reason: str = "cancelled") -> AgentEvent:
+    return AgentEvent(type="cancelled", data={"status": "cancelled", "reason": reason})
 
 
 def error_event(error: Exception | str) -> AgentEvent:
@@ -95,7 +105,8 @@ def map_langgraph_event(event: dict[str, Any]) -> AgentEvent | None:
         )
 
     # LangGraph custom stream writer events arrive via stream_mode="custom".
-    # astream_events surfaces only selected events here; debug/internal events are dropped by design.
+    # astream_events surfaces only selected events here; debug/internal events are dropped
+    # by design.
     return None
 
 
@@ -123,6 +134,9 @@ def map_stream_part(part: tuple[str, Any]) -> AgentEvent | None:
             "approval_resolved",
             "subagent_start",
             "subagent_end",
+            "stopped",
+            "cancelled",
+            "interrupted",
         }:
             return AgentEvent(type=custom_type, data={k: v for k, v in data.items() if k != "type"})
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUp } from "lucide-react";
+import { ArrowUp, Square } from "lucide-react";
 import { useEffect, useRef } from "react";
 
 import type { AgentSettings } from "./settings-panel";
@@ -8,26 +8,31 @@ import type { AgentSettings } from "./settings-panel";
 type ChatComposerProps = {
   value: string;
   disabled: boolean;
+  isStreaming: boolean;
   commandScope: AgentSettings["commandScope"];
   workingDirectory: string;
   onChange: (value: string) => void;
   onCommandScopeChange: (value: AgentSettings["commandScope"]) => void;
   onWorkingDirectoryChange: (value: string) => void;
   onSubmit: () => void;
+  onStop: () => void;
 };
 
 export function ChatComposer({
   value,
   disabled,
+  isStreaming,
   commandScope,
   workingDirectory,
   onChange,
   onCommandScopeChange,
   onWorkingDirectoryChange,
   onSubmit,
+  onStop,
 }: ChatComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const canSubmit = !disabled && value.trim().length > 0;
+  const inputDisabled = disabled || isStreaming;
+  const canSubmit = !inputDisabled && value.trim().length > 0;
 
   /* Auto-resize textarea up to 200px */
   useEffect(() => {
@@ -39,13 +44,13 @@ export function ChatComposer({
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (canSubmit) onSubmit();
+    if (!isStreaming && canSubmit) onSubmit();
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
-      if (canSubmit) onSubmit();
+      if (!isStreaming && canSubmit) onSubmit();
     }
   }
 
@@ -64,7 +69,7 @@ export function ChatComposer({
             ref={textareaRef}
             id="agent-message"
             value={value}
-            disabled={disabled}
+            disabled={inputDisabled}
             rows={1}
             onChange={(e) => onChange(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -73,21 +78,28 @@ export function ChatComposer({
             style={{ minHeight: "28px", maxHeight: "200px" }}
           />
           <button
-            type="submit"
-            disabled={!canSubmit}
-            aria-label="发送消息"
+            type={isStreaming ? "button" : "submit"}
+            disabled={isStreaming ? false : !canSubmit}
+            aria-label={isStreaming ? "停止生成" : "发送消息"}
+            onClick={isStreaming ? onStop : undefined}
             className={`
               mb-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full md:rounded-control
               transition-all duration-200
               focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1
               ${
-                canSubmit
-                  ? "bg-slate-950 text-white shadow-sm hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-md focus-visible:ring-slate-400/50 dark:bg-slate-700 dark:text-slate-50 dark:hover:bg-slate-600"
-                  : "cursor-not-allowed bg-slate-200/90 text-slate-400 dark:bg-white/10 dark:text-slate-600"
+                isStreaming
+                  ? "bg-red-500 text-white shadow-sm hover:bg-red-600 focus-visible:ring-red-400/50"
+                  : canSubmit
+                    ? "bg-slate-950 text-white shadow-sm hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-md focus-visible:ring-slate-400/50 dark:bg-slate-700 dark:text-slate-50 dark:hover:bg-slate-600"
+                    : "cursor-not-allowed bg-slate-200/90 text-slate-400 dark:bg-white/10 dark:text-slate-600"
               }
             `}
           >
-            <ArrowUp className="h-4 w-4" strokeWidth={2.5} />
+            {isStreaming ? (
+              <Square className="h-3.5 w-3.5" fill="currentColor" strokeWidth={2.4} />
+            ) : (
+              <ArrowUp className="h-4 w-4" strokeWidth={2.5} />
+            )}
           </button>
         </div>
 
@@ -102,7 +114,7 @@ export function ChatComposer({
             <input
               id="agent-working-directory"
               value={workingDirectory}
-              disabled={disabled}
+              disabled={inputDisabled}
               onChange={(event) => onWorkingDirectoryChange(event.target.value)}
               placeholder="例如 /path/to/your/project"
               className="min-w-0 flex-1 rounded-full bg-slate-950/[0.05] px-3 py-1 text-[11px] font-medium text-slate-600 outline-none ring-1 ring-transparent transition placeholder:text-slate-400/70 focus:ring-slate-400/30 disabled:opacity-50 dark:bg-white/[0.06] dark:text-slate-300 dark:placeholder:text-slate-600"
@@ -112,7 +124,7 @@ export function ChatComposer({
             <span className="shrink-0">命令范围</span>
             <select
               value={commandScope}
-              disabled={disabled}
+              disabled={inputDisabled}
               onChange={(event) =>
                 onCommandScopeChange(event.target.value as AgentSettings["commandScope"])
               }

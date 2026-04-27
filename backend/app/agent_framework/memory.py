@@ -11,15 +11,14 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
-
 ROOT = Path(__file__).resolve().parents[3]
 DATA_ROOT = ROOT / "data" / "agents"
 INDEX_ROOT = ROOT / "data" / "index"
 CHECKPOINT_PATH = INDEX_ROOT / "checkpoints.sqlite"
 _CHECKPOINT_CONN: sqlite3.Connection | None = None
-_CHECKPOINTER: "PersistentSqliteSaver | InMemorySaver | None" = None
+_CHECKPOINTER: PersistentSqliteSaver | InMemorySaver | None = None
 _ASYNC_CHECKPOINT_CONN: aiosqlite.Connection | None = None
-_ASYNC_CHECKPOINTER: "PersistentAsyncSqliteSaver | None" = None
+_ASYNC_CHECKPOINTER: PersistentAsyncSqliteSaver | None = None
 
 
 class PersistentSqliteSaver(SqliteSaver):

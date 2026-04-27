@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-
 PACT_LIST_FIELDS = ("goals", "constraints", "facts", "open_questions", "active_skills")
 
 

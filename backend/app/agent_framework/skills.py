@@ -91,7 +91,9 @@ class SkillCatalog:
                 "proposal": applied,
                 "requires_confirmation": False,
                 "applied": True,
-                "message": "Skill proposal was auto-applied under the configured agent skills root.",
+                "message": (
+                    "Skill proposal was auto-applied under the configured agent skills root."
+                ),
             }
         return {
             "proposal": record,
@@ -110,7 +112,9 @@ class SkillCatalog:
             raise ValueError("Rejected skill proposals cannot be applied.")
 
         path = self.resolve_skill_path(proposal["relative_path"])
-        previous_content = path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
+        previous_content = (
+            path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
+        )
         if proposal["action"] == "update" and not path.exists():
             raise FileNotFoundError(f"Cannot update missing skill: {proposal['relative_path']}")
         path.parent.mkdir(parents=True, exist_ok=True)

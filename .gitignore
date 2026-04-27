@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 backend/.env
+RUN_LOCAL_SERVERS.txt
 
 # Runtime data
 data/*
