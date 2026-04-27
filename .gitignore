@@ -16,9 +16,6 @@ data/agents/default/*
 !data/agents/default/SOUL.md
 !data/agents/default/USER.md
 backend/data/
-*.sqlite
-*.sqlite-shm
-*.sqlite-wal
 *.db
 
 # Python
@@ -62,3 +59,7 @@ test-results/
 Thumbs.db
 .idea/
 .vscode/
+
+# Cursor autopilot — keep tooling, ignore runtime state
+.cursor/state/
+.cursor/logs/

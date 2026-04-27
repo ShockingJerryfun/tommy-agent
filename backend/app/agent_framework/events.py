@@ -10,6 +10,7 @@ EventType = Literal[
     "tool_start",
     "tool_end",
     "node_end",
+    "context",
     "memory",
     "compaction",
     "skill",
@@ -125,6 +126,7 @@ def map_stream_part(part: tuple[str, Any]) -> AgentEvent | None:
         if custom_type in {
             "tool_start",
             "tool_end",
+            "context",
             "memory",
             "compaction",
             "skill",

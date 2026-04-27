@@ -1,0 +1,95 @@
+# Tool permission policy (S4 — locked blueprint §13).
+#
+# This file is the source of truth for *whether* a tool call needs an
+# approval queue entry, *what* risk level it carries, and *which* shell
+# patterns are denied outright. The Python loader in
+# ``tool_runtime/permissions.py`` reads this file once at import time and
+# the runtime/legacy ``approvals.py`` both delegate to the same decision.
+#
+# Risk levels are advisory: they propagate into approval_requests rows so
+# the UI can render them, but the actual gating is the boolean
+# ``needs_approval``. ``command_scope: unrestricted`` (set by the
+# frontend) bypasses approval gating wholesale.
+#
+# To add a new tool:
+#   1. Append it under ``tools:`` with ``approval`` set to one of
+#      ``never`` / ``always`` / ``conditional``.
+#   2. If ``conditional``, add a ``conditions:`` block with simple key
+#      checks. Currently supported predicates are listed below the
+#      example tools — extend ``permissions.py`` if you need more.
+
+version: 1
+
+# Default for any tool not explicitly listed below.
+default:
+  approval: never
+  risk: low
+
+# Shell command patterns that are denied even with approval (defence in
+# depth). These are case-insensitive Python regexes evaluated against the
+# normalised command string.
+denied_command_patterns:
+  - '\brm\s+-[^;&|]*r[^;&|]*f\b'
+  - '\bsudo\b'
+  - '\bchmod\s+-R\b'
+  - '\bchown\s+-R\b'
+  - '\bmkfs\b'
+  - '\bdiskutil\b'
+  - '\bdd\s+if='
+  - ':\(\)\s*\{'
+  - '\bcurl\b.+\|\s*(sh|bash|zsh)'
+  - '\bwget\b.+\|\s*(sh|bash|zsh)'
+
+tools:
+  get_current_time:
+    approval: never
+    risk: low
+
+  web_search:
+    approval: never
+    risk: low
+
+  read_workspace_file:
+    approval: never
+    risk: low
+
+  list_workspace:
+    approval: never
+    risk: low
+
+  read_local_file:
+    approval: never
+    risk: low
+
+  list_local_directory:
+    approval: never
+    risk: low
+
+  skill_propose:
+    approval: never
+    risk: low
+
+  context_pact_update:
+    approval: never
+    risk: low
+
+  write_local_file:
+    approval: always
+    risk:
+      # Mode-aware: overwrite is high, append is medium.
+      mode_overwrite: high
+      mode_default: medium
+    summary_template: "写入文件 {path}（{mode}, {size_bytes} bytes）"
+
+  run_shell_command:
+    approval: always
+    risk:
+      # Dangerous commands escalate to high regardless of base risk.
+      base: medium
+      dangerous: high
+    summary_template: "运行 shell 命令：{command_preview}"
+
+  delegate_task:
+    approval: always
+    risk: medium
+    summary_template: "委派给 {target_agent}: {task_preview}"

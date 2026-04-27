@@ -11,7 +11,7 @@ import {
   Zap,
 } from "lucide-react";
 import mermaid from "mermaid";
-import { useEffect, useId, useRef, useState } from "react";
+import { memo, useEffect, useId, useRef, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -218,15 +218,7 @@ function EmptyState() {
 /*  Message bubble                             */
 /* ─────────────────────────────────────────── */
 
-function MessageBubble({
-  message,
-  isLastAssistant,
-  isStreaming,
-  copied,
-  expandedTools,
-  onCopy,
-  onRegenerate,
-}: {
+type MessageBubbleProps = {
   message: ChatMessage;
   isLastAssistant: boolean;
   isStreaming: boolean;
@@ -234,7 +226,17 @@ function MessageBubble({
   expandedTools: boolean;
   onCopy: () => void;
   onRegenerate?: () => void;
-}) {
+};
+
+const MessageBubble = memo(function MessageBubble({
+  message,
+  isLastAssistant,
+  isStreaming,
+  copied,
+  expandedTools,
+  onCopy,
+  onRegenerate,
+}: MessageBubbleProps) {
   const isUser = message.role === "user";
   const showCursor = isLastAssistant && isStreaming && message.content !== "";
   const showTyping =
@@ -283,6 +285,7 @@ function MessageBubble({
               message={message}
               showCursor={showCursor}
               expandedTools={expandedTools}
+              fastText={isLastAssistant && isStreaming}
             />
             {(message.content || message.tools?.length) && (
               <MessageActions
@@ -295,6 +298,19 @@ function MessageBubble({
         )}
       </div>
     </div>
+  );
+}, areMessageBubblePropsEqual);
+
+function areMessageBubblePropsEqual(
+  previous: MessageBubbleProps,
+  next: MessageBubbleProps,
+) {
+  return (
+    previous.message === next.message &&
+    previous.isLastAssistant === next.isLastAssistant &&
+    previous.isStreaming === next.isStreaming &&
+    previous.copied === next.copied &&
+    previous.expandedTools === next.expandedTools
   );
 }
 
@@ -353,10 +369,12 @@ function MessageContent({
   message,
   showCursor,
   expandedTools,
+  fastText,
 }: {
   message: ChatMessage;
   showCursor: boolean;
   expandedTools: boolean;
+  fastText: boolean;
 }) {
   const parts = message.parts?.length
     ? message.parts
@@ -401,6 +419,7 @@ function MessageContent({
           key={part.id}
           content={part.content}
           showCursor={showCursor && index === parts.length - 1}
+          fastText={fastText}
         />,
       );
     }
@@ -413,10 +432,23 @@ function MessageContent({
 function MessageText({
   content,
   showCursor,
+  fastText,
 }: {
   content: string;
   showCursor: boolean;
+  fastText: boolean;
 }) {
+  if (fastText) {
+    return (
+      <div className="whitespace-pre-wrap break-words">
+        {content}
+        {showCursor && (
+          <span className="ml-0.5 inline-block h-[1.05em] w-[2px] translate-y-[2px] rounded-sm bg-slate-700 opacity-80 animate-cursor-blink dark:bg-slate-300" />
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="markdown-body">
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>

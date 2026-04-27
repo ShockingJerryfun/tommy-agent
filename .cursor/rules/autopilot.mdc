@@ -1,0 +1,70 @@
+---
+description: Tommy SOTA rebuild autopilot protocol — auto-chains stages S0..S8.
+alwaysApply: true
+---
+
+# Tommy SOTA Rebuild — Autopilot Protocol
+
+This project chains the SOTA rebuild stages **S0 → S8** automatically via a
+Cursor `stop` hook. Whenever you finish a turn the hook re-enters you on the
+next pending stage. You must follow the protocol below for the chain to work.
+
+## On every turn
+
+1. **Read state first.** Run, or mentally consult, `.cursor/state/stages.json`.
+   The autopilot has already flipped the next stage to `in_progress` and the
+   `[AUTOPILOT — STAGE Sx]` system message tells you which one. If you ever
+   start a turn without an autopilot prompt and an `in_progress` stage exists,
+   continue that stage; do not jump ahead.
+2. **Execute the stage end-to-end.** No clarifying questions, no waiting for
+   approval — the user has already approved the blueprint and §13 decisions.
+   Use Cursor's native file/edit/terminal tools; do not just emit Markdown.
+3. **Quality gates that must hold before completing a stage:**
+   - `python -m pytest -x -q` from `backend/` exits 0.
+   - `python -m ruff check` from `backend/` exits 0.
+   - Public API behavior is preserved unless the stage explicitly changes it.
+   - New behavior has tests.
+   - If the stage adds DB schema, ship an Alembic migration in
+     `backend/migrations/versions/` and confirm `alembic upgrade head` succeeds.
+
+## Signaling completion (this is what advances the chain)
+
+When the stage is fully done, run **from the workspace root**:
+
+```bash
+./.cursor/hooks/autopilot.sh complete <STAGE_ID>
+```
+
+That is the **only** signal the autopilot uses to advance. Do not skip it,
+do not call it before the work is actually green, and do not call it for a
+stage you did not just finish. After the call, end your turn cleanly — the
+`stop` hook will inject the next stage's prompt automatically.
+
+## Signaling a real blocker
+
+If you genuinely cannot proceed (missing credential, ambiguous user
+decision that contradicts §13, irrecoverable failure), run:
+
+```bash
+./.cursor/hooks/autopilot.sh block <STAGE_ID> "<one-line reason>"
+```
+
+Then stop. The autopilot will pause and surface the blocker to the user
+instead of advancing.
+
+## Operator commands (informational)
+
+- `./.cursor/hooks/autopilot.sh status` — show the stage table.
+- `./.cursor/hooks/autopilot.sh disable` / `enable` — pause / resume the chain.
+- `./.cursor/hooks/autopilot.sh unblock <STAGE_ID>` — clear a blocked stage.
+- `./.cursor/hooks/autopilot.sh reset` — set every stage back to `pending`.
+
+## Safety rails
+
+- Never edit `.cursor/state/stages.json` by hand from inside a turn — always
+  go through `autopilot.sh` so the audit log in `.cursor/logs/autopilot.log`
+  stays consistent.
+- Never call `autopilot.sh complete` for more than one stage per turn.
+- Never call `autopilot.sh enable`/`disable` from inside a turn.
+- If the user explicitly says "stop autopilot" / "pause" / "halt", call
+  `autopilot.sh disable` and end the turn.

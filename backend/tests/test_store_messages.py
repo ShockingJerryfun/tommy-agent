@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from app.agent_framework.store import SQLiteAgentStore
+from app.agent_framework.store import PostgresAgentStore
 
 
-def test_update_message_content_and_metadata_status(tmp_path):
-    store = SQLiteAgentStore(tmp_path / "agent.sqlite")
+def test_update_message_content_and_metadata_status():
+    store = PostgresAgentStore()
+    store.reset_for_tests()
     session_id = store.create_session(agent_id="default")
 
     message = store.append_message(

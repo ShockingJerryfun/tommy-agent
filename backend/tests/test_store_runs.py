@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from app.agent_framework.store import SQLiteAgentStore
+from app.agent_framework.store import PostgresAgentStore
 
 
-def test_create_update_cancel_and_list_runs(tmp_path):
-    store = SQLiteAgentStore(tmp_path / "agent.sqlite")
+def test_create_update_cancel_and_list_runs():
+    store = PostgresAgentStore()
+    store.reset_for_tests()
     session_id = store.create_session(agent_id="default")
 
     run = store.create_run(session_id=session_id, agent_id="default", input="hello")
@@ -48,8 +49,9 @@ def test_create_update_cancel_and_list_runs(tmp_path):
     ]
 
 
-def test_run_cancel_request_and_run_event_sequence_filtering(tmp_path):
-    store = SQLiteAgentStore(tmp_path / "agent.sqlite")
+def test_run_cancel_request_and_run_event_sequence_filtering():
+    store = PostgresAgentStore()
+    store.reset_for_tests()
     session_id = store.create_session(agent_id="default")
     run = store.create_run(session_id=session_id, agent_id="default", input="hello")
     other = store.create_run(session_id=session_id, agent_id="default", input="other")
@@ -92,11 +94,16 @@ def test_run_cancel_request_and_run_event_sequence_filtering(tmp_path):
     )] == [second["id"]]
 
 
-def test_finalize_run_as_interrupted_closes_run_and_inserts_terminal_event(tmp_path):
-    store = SQLiteAgentStore(tmp_path / "agent.sqlite")
+def test_finalize_run_as_interrupted_closes_run_and_inserts_terminal_event():
+    store = PostgresAgentStore()
+    store.reset_for_tests()
     session_id = store.create_session(agent_id="default")
     run = store.create_run(session_id=session_id, agent_id="default", input="x")
-    store.update_run_status(str(run["id"]), status="running", started_at="2026-01-01T00:00:00+00:00")
+    store.update_run_status(
+        str(run["id"]),
+        status="running",
+        started_at="2026-01-01T00:00:00+00:00",
+    )
     assistant = store.append_message(
         session_id,
         role="assistant",

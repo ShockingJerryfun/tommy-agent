@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -10,124 +9,35 @@ from typing import Any
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
 
 from .agent import build_agent_graph
+from .api_schemas import (
+    ChatStreamRequest,
+    CompactSessionRequest,
+    ContextPactPatchRequest,
+    CreateSessionRequest,
+    CreateSessionResponse,
+    MemoryProposalRequest,
+    MemorySearchResponse,
+    RunCreateRequest,
+    RunCreateResponse,
+    SessionDetail,
+    SessionListItem,
+    SkillProposalRequest,
+    StopSessionRequest,
+)
 from .approvals import execute_approved_action
+from .checkpointing import create_async_checkpointer
 from .compaction import compact_transcript_records
 from .context import merge_context_pact, normalize_context_pact
 from .events import format_sse
-from .memory import DATA_ROOT, LocalMemoryStore, create_async_checkpointer
-from .runs import RunCreatePayload, RunManager
+from .local_memory import LocalMemoryStore
+from .paths import DATA_ROOT
+from .runs import RunManager
+from .runtime import RunCreatePayload, runtime_health
 from .skills import SkillCatalog, SkillProposal
-from .store import SQLiteAgentStore
+from .storage import get_agent_store
 from .tools import create_default_registry
-
-
-class CreateSessionResponse(BaseModel):
-    session_id: str
-
-
-class CreateSessionRequest(BaseModel):
-    agent_id: str = Field(default="default")
-    title: str = Field(default="新对话")
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-
-class SessionListItem(BaseModel):
-    id: str
-    title: str
-    preview: str
-    summary: str = ""
-    created_at: str
-    updated_at: str
-
-
-class SessionDetail(BaseModel):
-    session: dict[str, Any]
-    messages: list[dict[str, Any]]
-    run_events: list[dict[str, Any]]
-    tool_calls: list[dict[str, Any]]
-    latest_run: dict[str, Any] | None = None
-    active_run: dict[str, Any] | None = None
-    runs: list[dict[str, Any]] = Field(default_factory=list)
-    context_pact: dict[str, Any] = Field(default_factory=dict)
-    skill_proposals: list[dict[str, Any]] = Field(default_factory=list)
-    memory_proposals: list[dict[str, Any]] = Field(default_factory=list)
-    compaction_runs: list[dict[str, Any]] = Field(default_factory=list)
-    skills: list[dict[str, Any]] = Field(default_factory=list)
-    pending_approvals: list[dict[str, Any]] = Field(default_factory=list)
-
-
-class ChatStreamRequest(BaseModel):
-    session_id: str = Field(..., min_length=1)
-    message: str = Field(..., min_length=1)
-    agent_id: str = Field(default="default")
-    metadata: dict[str, Any] = Field(default_factory=dict)
-    history: list[ChatHistoryMessage] = Field(default_factory=list)
-    reset_thread: bool = Field(default=False)
-
-
-class ChatHistoryMessage(BaseModel):
-    role: str = Field(..., pattern="^(user|assistant)$")
-    content: str = Field(default="")
-
-
-class RunCreateRequest(BaseModel):
-    session_id: str = Field(..., min_length=1)
-    message: str = Field(..., min_length=1)
-    agent_id: str = Field(default="default")
-    metadata: dict[str, Any] = Field(default_factory=dict)
-    history: list[ChatHistoryMessage] = Field(default_factory=list)
-    reset_thread: bool = Field(default=False)
-
-
-class RunCreateResponse(BaseModel):
-    run_id: str
-    status: str
-
-
-class MemorySearchResponse(BaseModel):
-    results: list[dict[str, str]]
-
-
-class MemoryProposalRequest(BaseModel):
-    content: str = Field(..., min_length=1)
-    agent_id: str = Field(default="default")
-    session_id: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-
-class SkillProposalRequest(BaseModel):
-    name: str = Field(..., min_length=1)
-    action: str = Field(default="create", pattern="^(create|update)$")
-    rationale: str = Field(..., min_length=1)
-    content: str = Field(..., min_length=1)
-    relative_path: str | None = None
-    risks: list[str] = Field(default_factory=list)
-    agent_id: str = Field(default="default")
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-
-class ContextPactPatchRequest(BaseModel):
-    agent_id: str = Field(default="default")
-    summary: str | None = None
-    goals: list[str] = Field(default_factory=list)
-    constraints: list[str] = Field(default_factory=list)
-    facts: list[str] = Field(default_factory=list)
-    open_questions: list[str] = Field(default_factory=list)
-    active_skills: list[str] = Field(default_factory=list)
-
-
-class CompactSessionRequest(BaseModel):
-    agent_id: str = Field(default="default")
-    run_id: str | None = None
-    keep_recent: int = Field(default=18, ge=4, le=80)
-
-
-class StopSessionRequest(BaseModel):
-    run_id: str | None = None
-    reason: str = Field(default="用户停止了本次运行")
 
 
 def cors_origins() -> list[str]:
@@ -139,7 +49,7 @@ def cors_origins() -> list[str]:
 
 
 _graph = None
-_agent_store = SQLiteAgentStore()
+_agent_store = get_agent_store()
 
 
 async def get_graph():
@@ -155,10 +65,29 @@ async def get_graph():
 _run_manager = RunManager(store=_agent_store, graph_factory=get_graph)
 
 
+_maintenance_scheduler: Any | None = None
+
+
 @asynccontextmanager
 async def _app_lifespan(app: FastAPI):
+    global _maintenance_scheduler
     await _run_manager.reconcile_orphan_inflight_runs()
-    yield
+    if os.getenv("TOMMY_MAINTENANCE_DISABLED", "").strip().lower() not in {
+        "1",
+        "true",
+        "yes",
+    }:
+        from .observability import MaintenanceScheduler, default_maintenance_jobs
+
+        _maintenance_scheduler = MaintenanceScheduler(
+            jobs=default_maintenance_jobs(_agent_store)
+        )
+        await _maintenance_scheduler.start()
+    try:
+        yield
+    finally:
+        if _maintenance_scheduler is not None:
+            await _maintenance_scheduler.stop()
 
 
 app = FastAPI(title="Tommy Agent Framework", version="0.1.0", lifespan=_app_lifespan)
@@ -276,7 +205,7 @@ async def delete_session(session_id: str) -> dict[str, str]:
 
 @app.post("/api/chat/stream")
 async def chat_stream(request: ChatStreamRequest) -> StreamingResponse:
-    """Same semantics as POST /api/runs + GET /api/runs/{id}/events, for legacy EventSource clients."""
+    """Legacy streaming endpoint backed by the run lifecycle APIs."""
     meta = dict(request.metadata)
     meta["transport"] = "chat_stream"
     payload = RunCreatePayload(
@@ -701,8 +630,8 @@ async def reject_action(approval_id: str) -> dict[str, Any]:
 
 
 @app.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok"}
+async def health() -> dict[str, Any]:
+    return runtime_health(_agent_store)
 
 
 def app_root() -> Path:

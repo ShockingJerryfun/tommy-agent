@@ -45,12 +45,24 @@ async function proxy(request: Request, context: RouteContext) {
       ? undefined
       : await request.arrayBuffer();
 
-  const response = await fetch(targetUrl, {
-    method: request.method,
-    headers: filteredRequestHeaders(request),
-    body,
-    cache: "no-store",
-  });
+  let response: Response;
+  try {
+    response = await fetch(targetUrl, {
+      method: request.method,
+      headers: filteredRequestHeaders(request),
+      body,
+      cache: "no-store",
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return Response.json(
+      {
+        error: "Backend API unavailable",
+        detail: message,
+      },
+      { status: 502 },
+    );
+  }
 
   return new Response(response.body, {
     status: response.status,

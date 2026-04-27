@@ -1,1 +1,0 @@
-- 通过 cursor agent 命令行与本地 Cursor 对话时，默认使用 Composer 2 模型（--model composer-2）。

@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 
 from .context import merge_context_pact
 from .skills import SkillCatalog, SkillProposal
-from .store import SQLiteAgentStore
+from .storage import get_agent_store
 
 RUNTIME_TOOL_CONTEXT: ContextVar[dict[str, Any] | None] = ContextVar(
     "runtime_tool_context",
@@ -508,7 +508,7 @@ def context_pact_update(
     if not session_id:
         raise ValueError("session_id is required for context pact updates.")
     agent_id = str(context.get("agent_id") or "default")
-    store = SQLiteAgentStore()
+    store = get_agent_store()
     current = store.get_context_pact(session_id, agent_id=agent_id)
     patch = {
         "summary": summary,
@@ -532,7 +532,7 @@ def delegate_task(task: str, target_agent: str = "researcher", reason: str = "")
     if context.get("approval_granted"):
         session_id = str(context.get("session_id") or "")
         parent_run_id = str((context.get("metadata") or {}).get("run_id") or "")
-        if SQLiteAgentStore().run_stop_requested(session_id=session_id, run_id=parent_run_id):
+        if get_agent_store().run_stop_requested(session_id=session_id, run_id=parent_run_id):
             return json.dumps(
                 {
                     "status": "stopped",

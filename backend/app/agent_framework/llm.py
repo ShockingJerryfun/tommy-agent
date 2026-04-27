@@ -56,21 +56,24 @@ def _patch_reasoning_content_passthrough() -> None:
     import langchain_openai.chat_models.base as _base
     from langchain_core.messages import AIMessage
 
+    if getattr(_base._convert_message_to_dict, "_tommy_reasoning_patch", False):
+        return
+
     _original = _base._convert_message_to_dict
 
     def _patched(message, api="chat/completions"):  # type: ignore[no-untyped-def]
         d = _original(message, api=api)
-        if (
-            isinstance(message, AIMessage)
-            and "reasoning_content" in message.additional_kwargs
-        ):
-            d["reasoning_content"] = message.additional_kwargs["reasoning_content"]
+        if isinstance(message, AIMessage):
+            reasoning_content = message.additional_kwargs.get("reasoning_content")
+            if reasoning_content is not None:
+                d["reasoning_content"] = reasoning_content
         return d
 
+    _patched._tommy_reasoning_patch = True  # type: ignore[attr-defined]
     _base._convert_message_to_dict = _patched  # type: ignore[assignment]
 
 
-# Apply once at import time — idempotent if module is reloaded.
+# Apply once at import time.
 _patch_reasoning_content_passthrough()
 
 

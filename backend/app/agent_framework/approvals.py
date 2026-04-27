@@ -1,26 +1,22 @@
+"""Approval helpers — thin wrappers over the S4 permission policy.
+
+Historically this module owned the hardcoded approval list and the
+``DENIED_COMMAND_PATTERNS`` regex tuple. As of S4 the policy lives in
+``tool_runtime/permissions.yaml`` and is consulted via
+:func:`tool_runtime.default_permission_policy`. We keep the legacy
+function names so call sites (action node, tests, API) can keep
+importing them without churn while the new typed surface in
+``tool_runtime`` becomes the load-bearing path.
+"""
+
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass
 from typing import Any
 
+from .tool_runtime import default_permission_policy
 from .tools import ToolRegistry
-
-APPROVAL_REQUIRED_TOOLS = {"write_local_file", "run_shell_command", "delegate_task"}
-
-DENIED_COMMAND_PATTERNS = (
-    r"\brm\s+-[^;&|]*r[^;&|]*f\b",
-    r"\bsudo\b",
-    r"\bchmod\s+-R\b",
-    r"\bchown\s+-R\b",
-    r"\bmkfs\b",
-    r"\bdiskutil\b",
-    r"\bdd\s+if=",
-    r":\(\)\s*\{",
-    r"\bcurl\b.+\|\s*(sh|bash|zsh)",
-    r"\bwget\b.+\|\s*(sh|bash|zsh)",
-)
 
 
 @dataclass(frozen=True)
@@ -30,55 +26,51 @@ class ApprovalDecision:
     summary: str = ""
 
 
+def _approval_required_tools() -> set[str]:
+    policy = default_permission_policy()
+    return {
+        name
+        for name, spec in policy._tools.items()  # noqa: SLF001 - intentional read
+        if str(spec.get("approval") or "never") != "never"
+    }
+
+
+# Kept for back-compat with callers / tests that introspect the set directly.
+APPROVAL_REQUIRED_TOOLS = _approval_required_tools()
+
+
+def _denied_command_patterns() -> tuple[str, ...]:
+    return tuple(
+        pattern.pattern for pattern in default_permission_policy().denied_command_patterns
+    )
+
+
+# Mirrors the legacy module-level tuple so existing imports keep working.
+DENIED_COMMAND_PATTERNS = _denied_command_patterns()
+
+
 def evaluate_tool_call(
     name: str,
     args: dict[str, Any],
     *,
     command_scope: str = "restricted",
 ) -> ApprovalDecision:
-    if command_scope == "unrestricted":
-        return ApprovalDecision(needs_approval=False)
-
-    if name not in APPROVAL_REQUIRED_TOOLS:
-        return ApprovalDecision(needs_approval=False)
-
-    if name == "write_local_file":
-        mode = str(args.get("mode") or "overwrite")
-        path = str(args.get("path") or "")
-        bytes_count = len(str(args.get("content") or "").encode("utf-8"))
-        return ApprovalDecision(
-            needs_approval=True,
-            risk_level="high" if mode == "overwrite" else "medium",
-            summary=f"写入文件 {path}（{mode}, {bytes_count} bytes）",
-        )
-
-    if name == "run_shell_command":
-        command = str(args.get("command") or "")
-        risk = "high" if command_is_dangerous(command) else "medium"
-        return ApprovalDecision(
-            needs_approval=True,
-            risk_level=risk,
-            summary=f"运行 shell 命令：{command[:180]}",
-        )
-
-    if name == "delegate_task":
-        target = str(args.get("target_agent") or "researcher")
-        task = str(args.get("task") or "")
-        return ApprovalDecision(
-            needs_approval=True,
-            risk_level="medium",
-            summary=f"委派给 {target}: {task[:180]}",
-        )
-
-    return ApprovalDecision(needs_approval=True, risk_level="medium", summary=name)
+    decision = default_permission_policy().evaluate(
+        name, args, command_scope=command_scope
+    )
+    # Outright denials still surface as "needs_approval=True" in the legacy
+    # contract; the action node escalates them as approval-pending so the
+    # human reviewer can make the call. The structured ToolRuntime path
+    # short-circuits to a permission_denied error instead.
+    return ApprovalDecision(
+        needs_approval=decision.needs_approval,
+        risk_level=decision.risk_level,
+        summary=decision.summary,
+    )
 
 
 def command_is_dangerous(command: str) -> bool:
-    normalized = " ".join(command.strip().split())
-    return any(
-        re.search(pattern, normalized, flags=re.IGNORECASE)
-        for pattern in DENIED_COMMAND_PATTERNS
-    )
+    return default_permission_policy().command_is_dangerous(command)
 
 
 def assert_command_allowed(command: str) -> None:

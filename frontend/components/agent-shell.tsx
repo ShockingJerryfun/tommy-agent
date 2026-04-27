@@ -1,6 +1,6 @@
 "use client";
 
-import { fetchEventSource } from "@microsoft/fetch-event-source";
+import { type EventSourceMessage, fetchEventSource } from "@microsoft/fetch-event-source";
 import { Menu, Plus, SlidersHorizontal, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -46,6 +46,8 @@ const DEFAULT_SETTINGS: AgentSettings = {
   model: "deepseek-v4-pro",
   responseStyle: "balanced",
   temperature: 0.2,
+  thinkingMode: true,
+  thinkingEffort: "high",
   theme: "system",
   showRunGraph: true,
   expandedTools: false,
@@ -263,6 +265,38 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+function formatStreamError(error: unknown) {
+  if (error instanceof Error && error.message) return error.message;
+  if (error instanceof Event) return `Stream connection ${error.type || "failed"}`;
+  if (typeof error === "string") return error;
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
+}
+
+async function assertEventStream(response: Response) {
+  const contentType = response.headers.get("content-type") ?? "";
+  if (response.ok && contentType.includes("text/event-stream")) return;
+
+  const body = await response
+    .clone()
+    .text()
+    .catch(() => "");
+  const detail = body.trim() || response.statusText || "Unexpected stream response";
+  throw new Error(`Stream API ${response.status}: ${detail}`);
+}
+
+function parseStreamEvent(event: EventSourceMessage): AgentEvent | null {
+  if (!event.data) return null;
+  try {
+    return JSON.parse(event.data) as AgentEvent;
+  } catch {
+    throw new Error(`Invalid stream event payload: ${event.data.slice(0, 200)}`);
+  }
+}
+
 function toSessionListItem(item: ApiSessionListItem): SessionListItem {
   return {
     id: item.id,
@@ -350,6 +384,8 @@ export function AgentShell() {
   const currentRunIdRef = useRef<string | null>(null);
   const messagesRef = useRef<ChatMessage[]>([]);
   const stepsRef = useRef<RunStep[]>([]);
+  const pendingAssistantTokensRef = useRef("");
+  const tokenFlushFrameRef = useRef<number | null>(null);
   const [, setCurrentRunId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -378,6 +414,9 @@ export function AgentShell() {
     void boot();
     return () => {
       cancelled = true;
+      if (tokenFlushFrameRef.current !== null) {
+        window.cancelAnimationFrame(tokenFlushFrameRef.current);
+      }
     };
   }, []);
 
@@ -676,6 +715,22 @@ export function AgentShell() {
     });
   }
 
+  function flushPendingAssistantTokens() {
+    const content = pendingAssistantTokensRef.current;
+    pendingAssistantTokensRef.current = "";
+    tokenFlushFrameRef.current = null;
+    if (content) {
+      appendAssistantToken(content);
+    }
+  }
+
+  function scheduleAssistantToken(content: string) {
+    if (!content) return;
+    pendingAssistantTokensRef.current += content;
+    if (tokenFlushFrameRef.current !== null) return;
+    tokenFlushFrameRef.current = window.requestAnimationFrame(flushPendingAssistantTokens);
+  }
+
   function updateAssistantTool(tool: ToolCallView) {
     persistMessageState((current) => {
       const next = [...current];
@@ -715,11 +770,26 @@ export function AgentShell() {
   function handleAgentEvent(payload: AgentEvent) {
     const data = payload.data;
 
+    if (payload.type === "context") {
+      const sectionCount = Number(data.section_count ?? 0);
+      const totalChars = Number(data.total_chars ?? 0);
+      setMemoryStatus(`上下文已构建：${sectionCount} sections / ${totalChars} chars`);
+      persistStep(
+        createRunStep(
+          "context",
+          `上下文已构建 · ${sectionCount} sections · ${totalChars} chars`,
+          "done",
+          data,
+        ),
+      );
+      return;
+    }
+
     if (payload.type === "token") {
       if (!stepsRef.current.some((step) => step.type === "agent" && step.status === "running")) {
         persistStep(createRunStep("agent", "Agent 正在生成", "running"));
       }
-      appendAssistantToken(String(data.content ?? ""));
+      scheduleAssistantToken(String(data.content ?? ""));
       return;
     }
 
@@ -857,6 +927,7 @@ export function AgentShell() {
     }
 
     if (payload.type === "error") {
+      flushPendingAssistantTokens();
       setMemoryStatus(`Error: ${String(data.message ?? "Unknown error")}`);
       persistStep(createRunStep("error", "请求出错", "error"));
       setIsStreaming(false);
@@ -865,6 +936,7 @@ export function AgentShell() {
     }
 
     if (payload.type === "cancelled" || payload.type === "interrupted") {
+      flushPendingAssistantTokens();
       setMemoryStatus("已停止生成，内容已保存");
       setIsStreaming(false);
       setActiveRunId(null);
@@ -874,6 +946,7 @@ export function AgentShell() {
     }
 
     if (payload.type === "stopped") {
+      flushPendingAssistantTokens();
       setMemoryStatus("已停止生成，内容已保存");
       setIsStreaming(false);
       setActiveRunId(null);
@@ -883,6 +956,7 @@ export function AgentShell() {
     }
 
     if (payload.type === "done") {
+      flushPendingAssistantTokens();
       setIsStreaming(false);
       setActiveRunId(null);
       persistStep(createRunStep("done", "完成", "done"));
@@ -897,6 +971,11 @@ export function AgentShell() {
     const controller = new AbortController();
     abortRef.current = controller;
     stopRequestedRef.current = false;
+    pendingAssistantTokensRef.current = "";
+    if (tokenFlushFrameRef.current !== null) {
+      window.cancelAnimationFrame(tokenFlushFrameRef.current);
+      tokenFlushFrameRef.current = null;
+    }
     setActiveRunId(runId);
     setIsStreaming(true);
 
@@ -907,15 +986,17 @@ export function AgentShell() {
       await fetchEventSource(`${resolveApiBase()}/api/runs/${runId}/events${query}`, {
         method: "GET",
         signal: controller.signal,
+        onopen: assertEventStream,
         onmessage(event) {
-          const parsed = JSON.parse(event.data) as AgentEvent;
-          handleAgentEvent(parsed);
+          const parsed = parseStreamEvent(event);
+          if (parsed) handleAgentEvent(parsed);
         },
         onerror(error) {
           if (controller.signal.aborted || stopRequestedRef.current) return;
+          const message = formatStreamError(error);
           setIsStreaming(false);
-          setMemoryStatus(`Stream error: ${String(error)}`);
-          throw error;
+          setMemoryStatus(`Stream error: ${message}`);
+          throw new Error(message);
         },
         onclose() {
           setIsStreaming(false);
@@ -924,7 +1005,7 @@ export function AgentShell() {
     } catch (error) {
       if (!controller.signal.aborted && !stopRequestedRef.current) {
         setIsStreaming(false);
-        setMemoryStatus(`Stream error: ${String(error)}`);
+        setMemoryStatus(`Stream error: ${formatStreamError(error)}`);
       }
     } finally {
       if (abortRef.current === controller) {
@@ -952,6 +1033,11 @@ export function AgentShell() {
     const controller = new AbortController();
     abortRef.current = controller;
     stopRequestedRef.current = false;
+    pendingAssistantTokensRef.current = "";
+    if (tokenFlushFrameRef.current !== null) {
+      window.cancelAnimationFrame(tokenFlushFrameRef.current);
+      tokenFlushFrameRef.current = null;
+    }
     setInput("");
     setIsStreaming(true);
     stepsRef.current = [createRunStep("user", "收到输入", "done")];
@@ -977,15 +1063,17 @@ export function AgentShell() {
             .filter((item) => item.content.trim())
             .map((item) => ({ role: item.role, content: item.content })),
         }),
+        onopen: assertEventStream,
         onmessage(event) {
-          const parsed = JSON.parse(event.data) as AgentEvent;
-          handleAgentEvent(parsed);
+          const parsed = parseStreamEvent(event);
+          if (parsed) handleAgentEvent(parsed);
         },
         onerror(error) {
           if (controller.signal.aborted || stopRequestedRef.current) return;
+          const message = formatStreamError(error);
           setIsStreaming(false);
-          setMemoryStatus(`Stream error: ${String(error)}`);
-          throw error;
+          setMemoryStatus(`Stream error: ${message}`);
+          throw new Error(message);
         },
         onclose() {
           setIsStreaming(false);
@@ -994,7 +1082,7 @@ export function AgentShell() {
     } catch (error) {
       if (!controller.signal.aborted && !stopRequestedRef.current) {
         setIsStreaming(false);
-        setMemoryStatus(`Stream error: ${String(error)}`);
+        setMemoryStatus(`Stream error: ${formatStreamError(error)}`);
       }
     } finally {
       if (abortRef.current === controller) {
@@ -1020,6 +1108,11 @@ export function AgentShell() {
   }) {
     abortRef.current?.abort();
     stopRequestedRef.current = false;
+    pendingAssistantTokensRef.current = "";
+    if (tokenFlushFrameRef.current !== null) {
+      window.cancelAnimationFrame(tokenFlushFrameRef.current);
+      tokenFlushFrameRef.current = null;
+    }
     setActiveRunId(null);
     setInput("");
     setIsStreaming(true);

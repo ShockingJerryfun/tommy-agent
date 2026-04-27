@@ -10,6 +10,7 @@ export type RunStep = {
   type:
     | "user"
     | "agent"
+    | "context"
     | "tool"
     | "memory"
     | "skill"
@@ -34,6 +35,7 @@ type ReasoningPanelProps = {
 export function ReasoningPanel({ steps, showGraph = true }: ReasoningPanelProps) {
   const visibleSteps = useMemo(() => coalesceRunSteps(steps), [steps]);
   const graph = useMemo(() => buildProgressiveGraph(visibleSteps), [visibleSteps]);
+  const contextSummary = useMemo(() => latestContextSummary(visibleSteps), [visibleSteps]);
   const [expanded, setExpanded] = useState(false);
   const [zoom, setZoom] = useState(1);
   const graphHeight = expanded ? 220 : 128;
@@ -75,6 +77,34 @@ export function ReasoningPanel({ steps, showGraph = true }: ReasoningPanelProps)
             ) : (
               <RunGraph nodes={graph.nodes} zoom={zoom} expanded={expanded} />
             )}
+          </div>
+        )}
+
+        {contextSummary && (
+          <div className="rounded-2xl border border-slate-950/[0.06] bg-white/55 p-3 text-[12px] text-slate-600 shadow-sm dark:border-white/[0.08] dark:bg-white/[0.035] dark:text-slate-400">
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-medium text-slate-700 dark:text-slate-200">
+                Prompt Context
+              </span>
+              <span className="text-slate-400 dark:text-slate-500">
+                {contextSummary.sectionCount} sections · {contextSummary.totalChars} chars
+              </span>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {contextSummary.sections.slice(0, 6).map((section) => (
+                <span
+                  key={section.name}
+                  className="rounded-full bg-slate-950/[0.04] px-2 py-1 text-[11px] text-slate-500 dark:bg-white/[0.06] dark:text-slate-400"
+                  title={section.source}
+                >
+                  {section.title} · {section.charCount}
+                  {section.truncated ? " truncated" : ""}
+                </span>
+              ))}
+            </div>
+            <div className="mt-2 text-[11px] text-slate-400 dark:text-slate-500">
+              injected memories: {contextSummary.memoryCount}
+            </div>
           </div>
         )}
 
@@ -164,6 +194,40 @@ function graphStepKey(step: RunStep) {
 
 function stripToolStatus(label: string) {
   return label.replace(/\s*(运行中|完成|失败)$/u, "") || "工具";
+}
+
+type ContextSectionSummary = {
+  name: string;
+  title: string;
+  source: string;
+  charCount: number;
+  truncated: boolean;
+};
+
+function latestContextSummary(steps: RunStep[]) {
+  const contextStep = [...steps].reverse().find((step) => step.type === "context");
+  const payload = contextStep?.payload;
+  if (!payload) return null;
+  const rawSections = Array.isArray(payload.sections) ? payload.sections : [];
+  const sections = rawSections
+    .map((item): ContextSectionSummary | null => {
+      if (!item || typeof item !== "object") return null;
+      const section = item as Record<string, unknown>;
+      return {
+        name: String(section.name ?? section.title ?? "section"),
+        title: String(section.title ?? section.name ?? "Section"),
+        source: String(section.source ?? ""),
+        charCount: Number(section.char_count ?? 0),
+        truncated: Boolean(section.truncated),
+      };
+    })
+    .filter(Boolean) as ContextSectionSummary[];
+  return {
+    sectionCount: Number(payload.section_count ?? sections.length),
+    totalChars: Number(payload.total_chars ?? 0),
+    memoryCount: Array.isArray(payload.injected_memories) ? payload.injected_memories.length : 0,
+    sections,
+  };
 }
 
 function RunGraph({
@@ -259,6 +323,7 @@ function buildProgressiveGraph(steps: RunStep[]): { nodes: GraphNode[] } {
 
   for (const step of steps) {
     if (step.type === "user") upsert(step, "user", "输入");
+    if (step.type === "context") upsert(step, "context", "上下文");
     if (step.type === "agent") upsert(step, "agent", "Agent");
     if (step.type === "memory") upsert(step, "memory", "记忆");
     if (step.type === "skill") upsert(step, "skill", "Skill");

@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from app.agent_framework.runs import RunCreatePayload, RunManager
-from app.agent_framework.store import SQLiteAgentStore, utc_now
+from app.agent_framework.runs import RunManager
+from app.agent_framework.runtime import RunCreatePayload
+from app.agent_framework.store import PostgresAgentStore, utc_now
 
 
 class FakeChunk:
@@ -29,8 +30,9 @@ class MockStreamGraph:
 
 
 @pytest.mark.asyncio
-async def test_run_manager_streams_tokens_and_completes(tmp_path):
-    store = SQLiteAgentStore(tmp_path / "agent.sqlite")
+async def test_run_manager_streams_tokens_and_completes():
+    store = PostgresAgentStore()
+    store.reset_for_tests()
     parts = [
         ("messages", (FakeChunk("Hello"), {"langgraph_node": "agent"})),
         ("messages", (FakeChunk(" world"), {"langgraph_node": "agent"})),
@@ -62,10 +64,17 @@ async def test_run_manager_streams_tokens_and_completes(tmp_path):
     assistant = [m for m in messages if m.role == "assistant"][-1]
     assert "Hello world" in assistant.content
 
+    stored_agent_events = [
+        (event.get("payload") or {}).get("agent_event", {})
+        for event in store.list_run_events(session_id)
+    ]
+    assert all(event.get("type") != "token" for event in stored_agent_events)
+
 
 @pytest.mark.asyncio
-async def test_reconcile_orphan_inflight_marks_interrupted(tmp_path):
-    store = SQLiteAgentStore(tmp_path / "agent.sqlite")
+async def test_reconcile_orphan_inflight_marks_interrupted():
+    store = PostgresAgentStore()
+    store.reset_for_tests()
     session_id = store.create_session(agent_id="default")
     run = store.create_run(session_id=session_id, agent_id="default", input="orphan")
     store.update_run_status(str(run["id"]), status="running", started_at=utc_now())
@@ -78,3 +87,19 @@ async def test_reconcile_orphan_inflight_marks_interrupted(tmp_path):
     assert finalized == [str(run["id"])]
     assert store.get_run(str(run["id"]))["status"] == "interrupted"
     assert store.get_active_run(session_id) is None
+
+
+def test_run_manager_uses_checkpoint_history_for_normal_turns():
+    store = PostgresAgentStore()
+    rm = RunManager(store=store)
+    payload = RunCreatePayload(
+        session_id="session",
+        message="next",
+        agent_id="default",
+        history=[
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": "hello"},
+        ],
+    )
+
+    assert rm._build_history_messages(payload) == []

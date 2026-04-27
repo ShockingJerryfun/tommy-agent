@@ -8,6 +8,8 @@ export type AgentSettings = {
   model: string;
   responseStyle: "balanced" | "concise" | "detailed";
   temperature: number;
+  thinkingMode: boolean;
+  thinkingEffort: "high" | "max";
   theme: "system" | "light" | "dark";
   showRunGraph: boolean;
   expandedTools: boolean;
@@ -95,6 +97,29 @@ export function SettingsPanel({ settings, onChange }: SettingsPanelProps) {
               onChange={(event) => update("temperature", Number(event.target.value))}
               className="w-full accent-slate-900 dark:accent-slate-400"
             />
+          </label>
+
+          <Toggle
+            checked={settings.thinkingMode}
+            label="思考模式"
+            onChange={(checked) => update("thinkingMode", checked)}
+          />
+
+          <label className="block">
+            <span className="mb-1.5 block text-[11px] font-medium text-slate-400">
+              思考深度
+            </span>
+            <select
+              value={settings.thinkingEffort}
+              onChange={(event) =>
+                update("thinkingEffort", event.target.value as AgentSettings["thinkingEffort"])
+              }
+              disabled={!settings.thinkingMode}
+              className="w-full rounded-xl bg-slate-950/[0.04] px-3 py-2 text-[13px] outline-none ring-1 ring-transparent transition focus:ring-slate-400/30 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-900/80"
+            >
+              <option value="high">高</option>
+              <option value="max">最深</option>
+            </select>
           </label>
 
           <Toggle

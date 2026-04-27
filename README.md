@@ -1,6 +1,6 @@
 # Tommy Agent
 
-Tommy Agent 是一个本地优先的 Agent 工作台示例项目，后端基于 FastAPI、LangGraph 和 SQLite，前端基于 Next.js 和 React。它提供流式对话、工具调用审批、会话状态、长期记忆提案、Context Pact、Skill 提案和运行过程检查面板。
+Tommy Agent 是一个本地优先的 Agent 工作台示例项目，后端基于 FastAPI、LangGraph 和 PostgreSQL，前端基于 Next.js 和 React。它提供流式对话、工具调用审批、会话状态、长期记忆提案、Context Pact、Skill 提案和运行过程检查面板。
 
 ## 2026.4.26: Agent练习项目 Vibe 7 小时出的，勿喷。。。慢慢加功能
 
@@ -9,7 +9,7 @@ Tommy Agent 是一个本地优先的 Agent 工作台示例项目，后端基于 
 - LangGraph 驱动的 Agent 运行时，支持流式事件输出。
 - FastAPI 后端，提供会话、消息、审批、记忆、Skill 和压缩接口。
 - Next.js 前端，包含聊天界面、运行图、工具结果、审批队列和设置面板。
-- 本地 SQLite 持久化，用于会话、检查点、记忆和运行事件。
+- PostgreSQL 持久化，用于会话、检查点、记忆和运行事件。
 - 可配置 DeepSeek、OpenRouter 或 OpenAI 兼容模型。
 - Tavily Web Search 工具可选启用。
 
@@ -31,6 +31,7 @@ examples/
 ## 环境要求
 
 - Python 3.11+
+- PostgreSQL 17+
 - Node.js 20+
 - npm
 
@@ -44,7 +45,14 @@ pip install -e .
 cp .env.example .env
 ```
 
-编辑 `backend/.env`，填入你自己的模型服务密钥。然后加载环境变量并启动 API：
+确保 PostgreSQL 服务已启动，并创建本地数据库：
+
+```bash
+brew services start postgresql@17
+/opt/homebrew/opt/postgresql@17/bin/createdb tommy_agent
+```
+
+编辑 `backend/.env`，填入你自己的模型服务密钥，并确认 `TOMMY_POSTGRES_DSN=dbname=tommy_agent`。然后加载环境变量并启动 API：
 
 ```bash
 set -a

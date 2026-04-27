@@ -8,8 +8,9 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-from .memory import DATA_ROOT
-from .store import SQLiteAgentStore
+from .paths import DATA_ROOT
+from .storage import get_agent_store
+from .store import PostgresAgentStore
 
 
 class SkillProposal(BaseModel):
@@ -38,11 +39,11 @@ class SkillCatalog:
         self,
         agent_id: str = "default",
         root: Path | None = None,
-        store: SQLiteAgentStore | None = None,
+        store: PostgresAgentStore | None = None,
     ) -> None:
         self.agent_id = agent_id
         self.skills_root = (root or DATA_ROOT) / agent_id / "skills"
-        self.store = store or SQLiteAgentStore()
+        self.store = store or get_agent_store()
 
     def list_skills(self) -> list[SkillSummary]:
         if not self.skills_root.exists():
