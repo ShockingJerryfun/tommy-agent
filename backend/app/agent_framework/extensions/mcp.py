@@ -22,7 +22,7 @@ from typing import Any, Protocol
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
-from ..tools import ToolRegistry
+from ..tool_runtime import ToolRegistry
 
 # --------------------------------------------------------------------- protocol
 

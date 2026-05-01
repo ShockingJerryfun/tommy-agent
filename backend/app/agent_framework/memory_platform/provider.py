@@ -51,9 +51,7 @@ class MemoryProvider:
         top_k: int = 5,
         rerank: bool = True,
     ) -> RetrievalResult:
-        return self.retriever.retrieve(
-            query, agent_id=agent_id, top_k=top_k, rerank=rerank
-        )
+        return self.retriever.retrieve(query, agent_id=agent_id, top_k=top_k, rerank=rerank)
 
     def retrieve_for_context(
         self,

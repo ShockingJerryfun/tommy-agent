@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..checkpointing import checkpoint_status
 from ..paths import DATA_ROOT, INDEX_ROOT, ROOT
 from ..settings import settings_snapshot
-from ..store import PostgresAgentStore
+from ..storage import PostgresAgentStore
+from .checkpointing import checkpoint_status
 
 
 def runtime_health(store: PostgresAgentStore) -> dict[str, Any]:

@@ -1,5 +1,6 @@
 import { Archive, Brain, Check, Database } from "lucide-react";
 
+import { useI18n } from "../lib/i18n";
 import { InspectorPanel } from "./inspector-panel";
 
 export type ContextPactView = {
@@ -43,7 +44,11 @@ export function MemoryPanel({
   onConfirmMemory,
   onCompact,
 }: MemoryPanelProps) {
-  const sessionLabel = sessionId === "loading" ? "加载中…" : `会话 ${sessionId.slice(-6)}`;
+  const { t } = useI18n();
+  const sessionLabel =
+    sessionId === "loading"
+      ? t("memory.sessionLoading")
+      : t("memory.sessionLabel", { id: sessionId.slice(-6) });
   const latestCompaction = compactionRuns[0];
 
   return (
@@ -55,22 +60,22 @@ export function MemoryPanel({
       action={
         onCompact ? (
           <button
-          type="button"
+            type="button"
             onClick={onCompact}
-            className="rounded-full bg-slate-950/[0.05] px-2 py-1 text-[10px] font-medium text-slate-500 transition hover:bg-slate-950/[0.08] dark:bg-white/[0.06] dark:text-slate-400 dark:hover:bg-white/[0.1]"
+            className="admin-secondary-action soft-focus-ring px-2 py-1 text-[10px] font-medium"
           >
-            压缩
+            {t("memory.compress")}
           </button>
         ) : undefined
       }
     >
-      <dl className="divide-y divide-slate-950/[0.04] dark:divide-white/[0.05]">
-        <DataRow label="当前会话">
+      <dl className="space-y-2 p-3">
+        <DataRow label={t("memory.currentSession")}>
           <span className="text-[13px] text-slate-700 dark:text-slate-300">
             {sessionLabel}
           </span>
         </DataRow>
-        <DataRow label="状态">
+        <DataRow label={t("memory.status")}>
           <span className="text-[13px] text-slate-700 dark:text-slate-300">
             {status}
           </span>
@@ -78,25 +83,27 @@ export function MemoryPanel({
         <DataRow label="Context Pact">
           <PactSummary pact={contextPact} />
         </DataRow>
-        <DataRow label={`待确认记忆 ${memoryProposals.length}`}>
+        <DataRow label={t("memory.pending", { count: memoryProposals.length })}>
           {memoryProposals.length === 0 ? (
-            <span className="text-[12px] text-slate-400">暂无待确认记忆</span>
+            <span className="text-[12px] text-slate-400">
+              {t("memory.emptyPending")}
+            </span>
           ) : (
             <div className="space-y-2">
               {memoryProposals.slice(0, 3).map((proposal) => (
                 <div
                   key={proposal.id}
-                  className="rounded-xl bg-slate-950/[0.035] p-2.5 text-[12px] text-slate-600 dark:bg-white/[0.04] dark:text-slate-300"
+                  className="admin-card rounded-xl p-2.5 text-[12px] text-slate-600 dark:text-slate-300"
                 >
                   <p className="line-clamp-3">{proposal.content}</p>
                   {onConfirmMemory && (
                     <button
                       type="button"
                       onClick={() => onConfirmMemory(proposal.id)}
-                      className="mt-2 inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400"
+                      className="admin-badge admin-badge-success mt-2 gap-1 text-[10px]"
                     >
                       <Check className="h-3 w-3" />
-                      确认记忆
+                      {t("memory.confirm")}
                     </button>
                   )}
                 </div>
@@ -104,19 +111,24 @@ export function MemoryPanel({
             </div>
           )}
         </DataRow>
-        <DataRow label="最近压缩">
+        <DataRow label={t("memory.latestCompaction")}>
           {latestCompaction ? (
             <div className="space-y-1.5 text-[12px] text-slate-600 dark:text-slate-300">
               <div className="flex items-center gap-1.5 text-slate-400">
                 <Archive className="h-3 w-3" />
                 <span>
-                  {latestCompaction.message_count ?? 0} 条消息，保留 {latestCompaction.kept_messages ?? 0} 条
+                  {t("memory.compactionSummary", {
+                    messages: latestCompaction.message_count ?? 0,
+                    kept: latestCompaction.kept_messages ?? 0,
+                  })}
                 </span>
               </div>
               <p className="line-clamp-4">{latestCompaction.summary}</p>
             </div>
           ) : (
-            <span className="text-[12px] text-slate-400">还没有压缩记录</span>
+            <span className="text-[12px] text-slate-400">
+              {t("memory.noCompaction")}
+            </span>
           )}
         </DataRow>
       </dl>
@@ -125,8 +137,13 @@ export function MemoryPanel({
 }
 
 function PactSummary({ pact }: { pact?: ContextPactView }) {
+  const { t } = useI18n();
   if (!pact || (!pact.summary && !pact.goals?.length && !pact.facts?.length)) {
-    return <span className="text-[12px] text-slate-400">暂无结构化上下文</span>;
+    return (
+      <span className="text-[12px] text-slate-400">
+        {t("memory.noContext")}
+      </span>
+    );
   }
   return (
     <div className="space-y-2 text-[12px] text-slate-600 dark:text-slate-300">
@@ -136,9 +153,9 @@ function PactSummary({ pact }: { pact?: ContextPactView }) {
           {pact.summary}
         </p>
       )}
-      <PactList label="目标" items={pact.goals} />
-      <PactList label="事实" items={pact.facts} />
-      <PactList label="开放问题" items={pact.open_questions} />
+      <PactList label={t("memory.goals")} items={pact.goals} />
+      <PactList label={t("memory.facts")} items={pact.facts} />
+      <PactList label={t("memory.openQuestions")} items={pact.open_questions} />
     </div>
   );
 }
@@ -169,7 +186,7 @@ function DataRow({
   children: React.ReactNode;
 }) {
   return (
-    <div className="px-4 py-3">
+    <div className="ios-glass-field rounded-xl px-4 py-3">
       <dt className="mb-1 text-[11px] font-medium text-slate-400">{label}</dt>
       <dd>{children}</dd>
     </div>

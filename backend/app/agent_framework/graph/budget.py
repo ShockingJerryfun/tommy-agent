@@ -96,9 +96,7 @@ class Budget:
             notes=notes,
         )
         exhausted, reason = candidate.evaluate()
-        return replace(
-            candidate, exhausted=exhausted, exhausted_reason=reason
-        )
+        return replace(candidate, exhausted=exhausted, exhausted_reason=reason)
 
     def started(self) -> Budget:
         """Stamp ``started_at`` if not already started."""
@@ -131,12 +129,8 @@ class Budget:
         return cls(
             max_turns=int(data.get("max_turns", DEFAULT_MAX_TURNS)),
             max_tool_calls=int(data.get("max_tool_calls", DEFAULT_MAX_TOOL_CALLS)),
-            max_wall_seconds=float(
-                data.get("max_wall_seconds", DEFAULT_MAX_WALL_SECONDS)
-            ),
-            max_total_chars=int(
-                data.get("max_total_chars", DEFAULT_MAX_TOTAL_CHARS)
-            ),
+            max_wall_seconds=float(data.get("max_wall_seconds", DEFAULT_MAX_WALL_SECONDS)),
+            max_total_chars=int(data.get("max_total_chars", DEFAULT_MAX_TOTAL_CHARS)),
             turn_count=int(data.get("turn_count", 0)),
             tool_call_count=int(data.get("tool_call_count", 0)),
             total_chars=int(data.get("total_chars", 0)),
@@ -185,9 +179,7 @@ class Budget:
             return default
 
         return cls(
-            max_turns=_int(
-                "max_turns", "TOMMY_BUDGET_MAX_TURNS", DEFAULT_MAX_TURNS
-            ),
+            max_turns=_int("max_turns", "TOMMY_BUDGET_MAX_TURNS", DEFAULT_MAX_TURNS),
             max_tool_calls=_int(
                 "max_tool_calls",
                 "TOMMY_BUDGET_MAX_TOOL_CALLS",

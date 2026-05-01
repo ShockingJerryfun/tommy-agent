@@ -68,6 +68,19 @@ class AssistantMessageWriter:
             return
         self._parts.append({"id": f"text-{uuid4().hex}", "type": "text", "content": content})
 
+    def append_reasoning(self, content: str) -> None:
+        if not content:
+            return
+        if self._parts and self._parts[-1].get("type") == "reasoning":
+            self._parts[-1]["content"] = str(self._parts[-1].get("content", "")) + content
+        else:
+            self._parts.append({
+                "id": f"reasoning-{uuid4().hex}",
+                "type": "reasoning",
+                "content": content,
+            })
+        self._tokens_since_flush += 1
+
     def upsert_tool(self, tool: dict[str, Any]) -> None:
         tool_id = str(tool.get("id") or tool.get("tool_call_id") or uuid4().hex)
         normalized = {

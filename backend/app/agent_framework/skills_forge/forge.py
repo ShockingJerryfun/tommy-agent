@@ -5,9 +5,9 @@ analysis over recent ``tool_calls`` rows (per session, sliding window of
 size two). Every successful run keeps an audit row in
 ``skill_forge_runs`` so an operator can backtrack any decision.
 
-Promotions are gated on human review (blueprint §13). The ``promote``
+Promotions are gated on human review. The ``promote``
 method requires a proposal that already reached ``status='applied'`` in
-the legacy ``skill_proposals`` queue; until then the catalog row stays
+the ``skill_proposals`` queue; until then the catalog row stays
 in ``shadow``. ``run_nightly`` therefore only ever produces *candidates*
 — a human flips them live. ``retire`` is the one auto-action allowed:
 under-performing skills get demoted without review.
@@ -22,9 +22,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..memory_platform import Embedder, make_embedder
-from ..skills import SkillCatalog
-from ..storage import get_agent_store
-from ..store import PostgresAgentStore
+from ..storage import PostgresAgentStore, get_agent_store
+from .catalog import SkillCatalog
 
 ToolChain = tuple[str, ...]
 
@@ -82,6 +81,12 @@ def _skill_markdown(name: str, chain: ToolChain, rationale: str) -> str:
         f"should consider invoking the chain end-to-end when the user's "
         f"request matches the skill signature.\n"
     )
+
+
+def _same_tool_chain(value: Any, chain: ToolChain) -> bool:
+    if not isinstance(value, list):
+        return False
+    return tuple(str(item) for item in value) == chain
 
 
 class SkillForge:
@@ -161,6 +166,14 @@ class SkillForge:
         relative_path = f"{skill_name}/SKILL.md"
         signature = _signature(chain, sample_args=sample_args)
 
+        existing = self._existing_pending_forge_proposal(
+            agent_id=agent_id,
+            chain=chain,
+            relative_path=relative_path,
+        )
+        if existing is not None:
+            return existing
+
         markdown = _skill_markdown(
             name=skill_name,
             chain=chain,
@@ -208,6 +221,31 @@ class SkillForge:
             "skill": catalog_row,
             "signature": signature,
         }
+
+    def _existing_pending_forge_proposal(
+        self,
+        *,
+        agent_id: str,
+        chain: ToolChain,
+        relative_path: str,
+    ) -> dict[str, Any] | None:
+        proposals = self._store.list_skill_proposals(agent_id=agent_id, status="proposed")
+        for proposal in proposals:
+            metadata = proposal.get("metadata") or {}
+            if metadata.get("source") != "skill_forge":
+                continue
+            if proposal.get("relative_path") != relative_path:
+                continue
+            if not _same_tool_chain(metadata.get("tool_chain"), chain):
+                continue
+            for skill in self._store.skill_catalog.list_skills(agent_id=agent_id, status="shadow"):
+                if skill.get("proposal_id") == proposal["id"]:
+                    return {
+                        "proposal": proposal,
+                        "skill": skill,
+                        "signature": skill.get("signature") or _signature(chain),
+                    }
+        return None
 
     # ------------------------------------------------------------------
     # 3. shadow_validate

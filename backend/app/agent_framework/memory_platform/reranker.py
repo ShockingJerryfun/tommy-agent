@@ -97,9 +97,7 @@ class BgeReranker:
         if not query.strip():
             return list(candidates[: max(0, top_k)])
         model = self._ensure_model()
-        pairs: Iterable[tuple[str, str]] = (
-            (query, candidate.content) for candidate in candidates
-        )
+        pairs: Iterable[tuple[str, str]] = ((query, candidate.content) for candidate in candidates)
         scores = list(model.predict(list(pairs)))
         scored = [
             replace(candidate, rerank_score=float(score), final_score=float(score))

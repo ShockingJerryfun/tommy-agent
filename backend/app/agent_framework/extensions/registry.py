@@ -54,13 +54,9 @@ class HookRegistry:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._hooks: dict[HookPhase, list[HookRegistration]] = {
-            phase: [] for phase in HookPhase
-        }
+        self._hooks: dict[HookPhase, list[HookRegistration]] = {phase: [] for phase in HookPhase}
         self._counter = count()
-        self._executor = ThreadPoolExecutor(
-            max_workers=4, thread_name_prefix="tommy-hook"
-        )
+        self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="tommy-hook")
 
     # ----------------------------------------------------------------- registration
 
@@ -149,10 +145,7 @@ class HookRegistry:
                 continue
             outcome = self._invoke(registration, ctx)
             outcomes.append(outcome)
-            if (
-                outcome.status in {"error", "timeout"}
-                and registration.failure_policy == "halt"
-            ):
+            if outcome.status in {"error", "timeout"} and registration.failure_policy == "halt":
                 halted = True
         return outcomes
 

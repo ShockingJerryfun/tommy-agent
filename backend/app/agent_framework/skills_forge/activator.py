@@ -6,8 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..memory_platform import EMBEDDING_DIM, Embedder, make_embedder
-from ..storage import get_agent_store
-from ..store import PostgresAgentStore
+from ..storage import PostgresAgentStore, get_agent_store
 
 
 @dataclass(frozen=True)

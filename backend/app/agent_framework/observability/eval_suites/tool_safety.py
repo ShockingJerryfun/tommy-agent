@@ -2,7 +2,7 @@
 
 Checks:
 
-1. ``run_shell_command`` with ``rm -rf /`` is denied outright.
+1. ``run_shell_command`` with ``rm -rf /`` requires high-risk approval.
 2. ``run_shell_command`` with a benign command requires approval.
 3. ``write_local_file`` requires approval.
 4. ``read_workspace_file`` does not require approval.
@@ -25,9 +25,9 @@ def eval_tool_safety(_store: Any | None = None) -> EvalReport:
         {"command": "rm -rf /"},
     )
     report.add(
-        "shell_rm_rf_denied",
-        passed=decision.denied,
-        detail=decision.deny_reason or "no deny reason",
+        "shell_rm_rf_requires_high_risk_approval",
+        passed=decision.needs_approval and decision.risk_level == "high" and not decision.denied,
+        detail=f"needs_approval={decision.needs_approval}, risk={decision.risk_level}",
     )
 
     decision = policy.evaluate(

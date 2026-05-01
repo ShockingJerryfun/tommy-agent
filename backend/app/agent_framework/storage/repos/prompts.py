@@ -1,6 +1,7 @@
-"""Prompt-snapshot and memory-injection repositories.
+"""Prompt-library, prompt-snapshot, and memory-injection repositories.
 
-Both tables back the audit trail for ContextBuilder v2:
+The prompt-library table powers user-selectable slash/@ prompts. The
+snapshot/injection tables back the audit trail for ContextBuilder v2:
 
 - ``prompt_snapshots`` records *what* was sent to the model (sections,
   budget, content hash) so we can replay deterministically.
@@ -18,7 +19,106 @@ from __future__ import annotations
 from typing import Any
 from uuid import uuid4
 
+import psycopg.errors
+
 from ._base import Connector, dumps, loads, utc_now
+
+
+class PromptShortcutConflict(ValueError):
+    """Raised when a user's shortcut collides with an existing prompt."""
+
+
+class PromptRepo:
+    """CRUD repository for built-in and user prompt-library entries."""
+
+    def __init__(self, connector: Connector) -> None:
+        self._connector = connector
+
+    def list_prompts(self, *, owner_user: str = "") -> list[dict[str, Any]]:
+        with self._connector.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM prompts
+                WHERE kind = 'builtin' OR (kind = 'user' AND owner_user = ?)
+                ORDER BY
+                    CASE WHEN kind = 'builtin' THEN 0 ELSE 1 END ASC,
+                    CASE WHEN kind = 'builtin' THEN name ELSE '' END ASC,
+                    CASE WHEN kind = 'user' THEN updated_at ELSE '' END DESC
+                """,
+                (owner_user,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_prompt(self, prompt_id: str) -> dict[str, Any] | None:
+        with self._connector.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM prompts WHERE id = ?",
+                (prompt_id,),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def create_prompt(
+        self,
+        *,
+        owner_user: str,
+        name: str,
+        body: str,
+        shortcut: str = "",
+    ) -> dict[str, Any]:
+        prompt_id = f"prompt-{uuid4().hex}"
+        now = utc_now()
+        try:
+            with self._connector.connect() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO prompts(
+                        id, owner_user, kind, name, body, shortcut, created_at, updated_at
+                    )
+                    VALUES (?, ?, 'user', ?, ?, ?, ?, ?)
+                    """,
+                    (prompt_id, owner_user, name, body, shortcut, now, now),
+                )
+        except psycopg.errors.UniqueViolation as exc:
+            raise PromptShortcutConflict("Prompt shortcut already exists") from exc
+        return self.get_prompt(prompt_id) or {}
+
+    def update_prompt(
+        self,
+        prompt_id: str,
+        *,
+        name: str | None = None,
+        body: str | None = None,
+        shortcut: str | None = None,
+    ) -> dict[str, Any] | None:
+        existing = self.get_prompt(prompt_id)
+        if existing is None:
+            return None
+        next_name = existing["name"] if name is None else name
+        next_body = existing["body"] if body is None else body
+        next_shortcut = existing["shortcut"] if shortcut is None else shortcut
+        try:
+            with self._connector.connect() as conn:
+                conn.execute(
+                    """
+                    UPDATE prompts
+                    SET name = ?, body = ?, shortcut = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (next_name, next_body, next_shortcut, utc_now(), prompt_id),
+                )
+        except psycopg.errors.UniqueViolation as exc:
+            raise PromptShortcutConflict("Prompt shortcut already exists") from exc
+        return self.get_prompt(prompt_id)
+
+    def delete_prompt(self, prompt_id: str) -> bool:
+        existing = self.get_prompt(prompt_id)
+        if existing is None:
+            return False
+        if existing["kind"] == "builtin":
+            return False
+        with self._connector.connect() as conn:
+            conn.execute("DELETE FROM prompts WHERE id = ?", (prompt_id,))
+        return True
 
 
 class PromptSnapshotRepo:

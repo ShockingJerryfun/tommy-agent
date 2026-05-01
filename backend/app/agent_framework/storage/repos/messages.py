@@ -19,6 +19,28 @@ class MessageRepo:
     def __init__(self, connector: Connector) -> None:
         self._connector = connector
 
+    def get_message(self, message_id: str) -> StoredMessage | None:
+        with self._connector.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id, session_id, role, content, metadata_json, position, created_at
+                FROM messages
+                WHERE id = ?
+                """,
+                (message_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return StoredMessage(
+            id=row["id"],
+            session_id=row["session_id"],
+            role=row["role"],
+            content=row["content"],
+            metadata=loads(row["metadata_json"]),
+            position=row["position"],
+            created_at=row["created_at"],
+        )
+
     def append_message(
         self,
         session_id: str,
@@ -143,6 +165,65 @@ class MessageRepo:
             for row in rows
         ]
         return sorted(messages, key=lambda item: item.position)
+
+    def delete_after(self, session_id: str, position: int) -> int:
+        """Hard-delete messages in ``session_id`` whose position is after ``position``.
+
+        ``run_events`` and ``tool_calls`` do not have a ``message_id`` column in the
+        current schema. The narrow reliable cascade is therefore through runs whose
+        ``assistant_message_id`` is one of the deleted messages.
+        """
+        with self._connector.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id
+                FROM messages
+                WHERE session_id = ? AND position > ?
+                ORDER BY position ASC
+                """,
+                (session_id, position),
+            ).fetchall()
+            message_ids = [str(row["id"]) for row in rows]
+            if not message_ids:
+                refresh_session_summary(conn, session_id)
+                return 0
+
+            placeholders = ", ".join("?" for _ in message_ids)
+            run_rows = conn.execute(
+                f"""
+                SELECT id
+                FROM runs
+                WHERE session_id = ? AND assistant_message_id IN ({placeholders})
+                """,
+                (session_id, *message_ids),
+            ).fetchall()
+            run_ids = [str(row["id"]) for row in run_rows]
+            if run_ids:
+                run_placeholders = ", ".join("?" for _ in run_ids)
+                conn.execute(
+                    f"""
+                    DELETE FROM tool_calls
+                    WHERE session_id = ? AND run_id IN ({run_placeholders})
+                    """,
+                    (session_id, *run_ids),
+                )
+                conn.execute(
+                    f"""
+                    DELETE FROM run_events
+                    WHERE session_id = ? AND run_id IN ({run_placeholders})
+                    """,
+                    (session_id, *run_ids),
+                )
+
+            conn.execute(
+                """
+                DELETE FROM messages
+                WHERE session_id = ? AND position > ?
+                """,
+                (session_id, position),
+            )
+            refresh_session_summary(conn, session_id)
+        return len(message_ids)
 
     def reset_session_content(
         self,

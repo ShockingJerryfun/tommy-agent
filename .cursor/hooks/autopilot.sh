@@ -10,6 +10,8 @@
 #   reset                  Set every stage back to pending.
 #   enable | disable       Toggle the auto_continue flag.
 #   next                   Print the id of the next pending/in_progress stage.
+#   set-chain <file.json>  Atomically replace the active chain with the contents
+#                          of the given JSON file (preserves audit log).
 
 set -euo pipefail
 
@@ -107,9 +109,28 @@ case "$cmd" in
     echo "■ autopilot disabled."
     ;;
 
+  set-chain)
+    src="${1:?usage: autopilot.sh set-chain <path-to-chain.json>}"
+    if [[ ! -f "$src" ]]; then
+      echo "chain file not found: $src" >&2
+      exit 1
+    fi
+    if ! jq -e '.stages and (.stages | type == "array")' "$src" >/dev/null; then
+      echo "chain file must have a top-level .stages array" >&2
+      exit 1
+    fi
+    label="$(jq -r '.active_chain // "unnamed"' "$src")"
+    count="$(jq -r '.stages | length' "$src")"
+    tmp="$(mktemp "${TMPDIR:-/tmp}/tommy-stages.XXXXXX")"
+    jq --arg now "$(iso_now)" '.updated_at = $now' "$src" >"$tmp"
+    mv "$tmp" "$STATE_FILE"
+    log "chain replaced: active_chain=$label stages=$count source=$src"
+    echo "▶ chain '$label' loaded ($count stages)."
+    ;;
+
   *)
     echo "unknown subcommand: $cmd" >&2
-    echo "see: $0 status | complete | block | unblock | start | reset | enable | disable | next" >&2
+    echo "see: $0 status | complete | block | unblock | start | reset | enable | disable | next | set-chain" >&2
     exit 2
     ;;
 esac

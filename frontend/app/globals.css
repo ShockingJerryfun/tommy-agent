@@ -1,3 +1,5 @@
+@import "katex/dist/katex.min.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -5,19 +7,218 @@
 :root {
   color-scheme: light;
   --font-inter: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+  /* IoT Apple Admin tokens */
+  --primary-text: #222222;
+  --secondary-text: #111111;
+  --text-color: #000000;
+  --text-secondary-color: #888888;
+  --light-bg: #f0f0f0;
+  --primary-bg: #F8F9FB;
+  --card-bg: #FFFFFF;
+  --input-bg: #f2f2f2;
+  --input-focus-bg: #e8e8e8;
+  --btn-primary: #222222;
+  --btn-hover: #000000;
+  --btn-secondary: #e0e0e0;
+  --btn-secondary-hover: #d0d0d0;
+  --primary-color: #6495ED;
+  --primary-color-light: rgba(100, 150, 255, 0.2);
+  --hover-bg-color: rgba(0, 0, 0, 0.05);
+  --active-nav-bg: rgba(0, 0, 0, 0.1);
+  --active-nav-text: #000000;
+  --error-color: #E74C3C;
+  --success-color: #2ECC71;
+  --danger-color: #ff6b6b;
+  --warning-color: #ffbb33;
+
+  --card-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+  --card-shadow-hover: 0 4px 16px rgba(0, 0, 0, 0.08);
+  --sidebar-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  --mobile-menu-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+  --subtle-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  --subtle-shadow-active: 0 5px 15px rgba(0, 0, 0, 0.15);
+  --liquid-glass-bg: rgba(255, 255, 255, 0.68);
+  --liquid-glass-bg-strong: rgba(255, 255, 255, 0.82);
+  --liquid-glass-field: rgba(248, 249, 250, 0.72);
+  --liquid-glass-highlight: rgba(255, 255, 255, 0.72);
+  --liquid-glass-edge: rgba(255, 255, 255, 0.42);
+  --liquid-glass-blur: 18px;
+  --liquid-glass-blur-nav: 24px;
+  --liquid-glass-shadow:
+    inset 0 1px 0 var(--liquid-glass-highlight),
+    inset 0 0 0 1px var(--liquid-glass-edge),
+    0 10px 28px rgba(15, 23, 42, 0.08);
+  --liquid-glass-shadow-hover:
+    inset 0 1px 0 var(--liquid-glass-highlight),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.55),
+    0 14px 36px rgba(15, 23, 42, 0.11);
+  --liquid-selected-bg:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.52)),
+    rgba(255, 255, 255, 0.64);
+  --liquid-selected-edge: rgba(255, 255, 255, 0.72);
+  --liquid-selected-highlight: rgba(255, 255, 255, 0.86);
+  --liquid-selected-shadow:
+    inset 0 1px 0 var(--liquid-selected-highlight),
+    inset 0 0 0 1px var(--liquid-selected-edge),
+    0 10px 26px rgba(15, 23, 42, 0.12),
+    0 2px 8px rgba(100, 149, 237, 0.12);
+
+  --apple-corner-desktop: 2px;
+  --apple-corner-display: 4px;
+  --apple-corner-small: 6px;
+  --apple-corner-laptop: 8px;
+  --apple-corner-medium: 12px;
+  --apple-corner-tablet: 12px;
+  --apple-corner-phone: 16px;
+  --apple-corner-large: 18px;
+  --apple-corner-personal: 20px;
+  --apple-corner-intimate: 24px;
+  --apple-corner-xlarge: 24px;
+
+  --admin-transition: 0.2s ease;
+  --admin-transition-spring: 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Component materials mapped to the existing class primitives */
+  --app-bg: var(--primary-bg);
+  --glass-bg: 255 255 255;
+  --glass-bg-strong: 255 255 255;
+  --glass-border-inner: 255 255 255 / 0;
+  --glass-border-inner-soft: 255 255 255 / 0;
+  --glass-border-outer: 255 255 255 / 0;
+  --glass-shadow: var(--card-shadow);
+  --surface-field: 242 242 242;
+  --surface-field-hover: 232 232 232;
+  --surface-menu: 255 255 255;
+  --surface-sidebar: 255 255 255;
+  --surface-control-strip: 248 249 250;
+
+  --content-bg: 255 255 255;
+  --content-border: 255 255 255 / 0;
+  --content-shadow: var(--card-shadow);
+
+  --control-fill: 242 242 242;
+  --control-fill-hover: 232 232 232;
+  --control-border: 255 255 255 / 0;
+  --focus-ring: 34 34 34 / 0.1;
+  --accent-fill: 34 34 34;
+  --accent-foreground: 255 255 255;
+
+  --radius-shell: var(--apple-corner-phone);
+  --radius-panel: var(--apple-corner-phone);
+  --radius-field: var(--apple-corner-medium);
+  --radius-button: var(--apple-corner-laptop);
+  --message-padding: 0.82rem 1rem;
+  --prose-line-height: 1.65;
+  --message-avatar-size: 1.875rem;
+
+  --message-link: 37 99 235;
+  --message-link-hover: 29 78 216;
+  --message-code-bg: 255 255 255 / 0.4;
+  --message-code-border: 15 23 42 / 0.05;
+  --message-code-header: 255 255 255 / 0.2;
+  --message-diagram-bg: 255 255 255 / 0.4;
+  --message-diagram-border: 15 23 42 / 0.05;
+  --message-scrollbar: 148 163 184 / 0.25;
 }
 
 .dark {
   color-scheme: dark;
+
+  --app-bg:
+    radial-gradient(120% 100% at 50% -20%, rgb(30 58 138 / 0.15), transparent),
+    radial-gradient(80% 60% at 100% 100%, rgb(15 23 42 / 0.4), transparent),
+    radial-gradient(80% 60% at 0% 100%, rgb(2 6 23 / 0.6), transparent),
+    #05070d;
+
+  --primary-bg: #05070d;
+  --card-bg: #0f172a;
+  --input-bg: #1e293b;
+  --input-focus-bg: #334155;
+  --btn-primary: #f8fafc;
+  --btn-hover: #ffffff;
+  --btn-secondary: #1e293b;
+  --btn-secondary-hover: #334155;
+  --sidebar-shadow: 0 4px 20px rgba(0, 0, 0, 0.45);
+  --mobile-menu-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+  --liquid-glass-bg: rgba(15, 23, 42, 0.68);
+  --liquid-glass-bg-strong: rgba(15, 23, 42, 0.84);
+  --liquid-glass-field: rgba(30, 41, 59, 0.72);
+  --liquid-glass-highlight: rgba(255, 255, 255, 0.12);
+  --liquid-glass-edge: rgba(255, 255, 255, 0.08);
+  --liquid-glass-shadow:
+    inset 0 1px 0 var(--liquid-glass-highlight),
+    inset 0 0 0 1px var(--liquid-glass-edge),
+    0 14px 36px rgba(0, 0, 0, 0.36);
+  --liquid-glass-shadow-hover:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.1),
+    0 18px 44px rgba(0, 0, 0, 0.45);
+  --liquid-selected-bg:
+    linear-gradient(135deg, rgba(51, 65, 85, 0.8), rgba(15, 23, 42, 0.56)),
+    rgba(15, 23, 42, 0.62);
+  --liquid-selected-edge: rgba(255, 255, 255, 0.14);
+  --liquid-selected-highlight: rgba(255, 255, 255, 0.18);
+  --liquid-selected-shadow:
+    inset 0 1px 0 var(--liquid-selected-highlight),
+    inset 0 0 0 1px var(--liquid-selected-edge),
+    0 14px 34px rgba(0, 0, 0, 0.38),
+    0 2px 10px rgba(125, 211, 252, 0.08);
+
+  --glass-bg: 15 23 42 / 0.5;
+  --glass-bg-strong: 15 23 42 / 0.7;
+  --glass-border-inner: 255 255 255 / 0.12;
+  --glass-border-inner-soft: 255 255 255 / 0.1;
+  --glass-border-outer: 0 0 0 / 0.4;
+  --glass-shadow: 0 16px 48px -12px rgb(0 0 0 / 0.5);
+  --surface-field: 30 41 59 / 0.74;
+  --surface-field-hover: 51 65 85 / 0.78;
+  --surface-menu: 15 23 42 / 0.9;
+  --surface-sidebar: 15 23 42 / 0.74;
+  --surface-control-strip: 15 23 42 / 0.34;
+
+  /* Content Materials */
+  --content-bg: 15 23 42 / 0.85;
+  --content-border: 255 255 255 / 0.08;
+  --content-shadow: 0 4px 20px -8px rgb(0 0 0 / 0.3);
+
+  /* Controls */
+  --control-fill: 255 255 255 / 0.08;
+  --control-fill-hover: 255 255 255 / 0.14;
+  --control-border: 255 255 255 / 0.04;
+  --focus-ring: 56 189 248 / 0.3;
+  --accent-fill: 248 250 252;
+  --accent-foreground: 15 23 42;
+
+  /* Formatting */
+  --message-link: 125 211 252;
+  --message-link-hover: 186 230 253;
+  --message-code-bg: 0 0 0 / 0.3;
+  --message-code-border: 255 255 255 / 0.08;
+  --message-code-header: 255 255 255 / 0.05;
+  --message-diagram-bg: 0 0 0 / 0.3;
+  --message-diagram-border: 255 255 255 / 0.08;
+  --message-scrollbar: 148 163 184 / 0.3;
+}
+
+html[data-density="compact"] {
+  --message-padding: 0.58rem 0.82rem;
+  --prose-line-height: 1.6;
+}
+
+html[data-density="comfortable"] {
+  --message-padding: 0.82rem 1rem;
+  --prose-line-height: 1.65;
 }
 
 body {
   min-height: 100vh;
-  background:
-    radial-gradient(ellipse 80% 50% at 15% -5%, rgb(219 234 254 / 0.5), transparent),
-    radial-gradient(ellipse 60% 40% at 85% 105%, rgb(226 232 240 / 0.4), transparent),
-    linear-gradient(160deg, #f8fafc 0%, #f1f5f9 50%, #f8fafc 100%);
+  background: var(--app-bg);
+  color: var(--primary-text);
+  font-weight: 500;
   transition: background 220ms ease, color 220ms ease;
+  background-attachment: fixed;
+  text-rendering: optimizeLegibility;
 }
 
 nextjs-portal {
@@ -25,10 +226,7 @@ nextjs-portal {
 }
 
 .dark body {
-  background:
-    radial-gradient(ellipse 80% 50% at 15% -5%, rgb(30 41 59 / 0.65), transparent),
-    radial-gradient(ellipse 60% 40% at 85% 105%, rgb(15 23 42 / 0.5), transparent),
-    linear-gradient(160deg, #020617 0%, #0f172a 50%, #0d1117 100%);
+  background: var(--app-bg);
 }
 
 .markdown-body > :first-child {
@@ -46,6 +244,76 @@ nextjs-portal {
 
 .dark .markdown-body strong {
   color: rgb(248 250 252 / 0.94);
+}
+
+.markdown-body {
+  color: rgb(51 65 85);
+  line-height: var(--prose-line-height, 1.65);
+}
+
+.dark .markdown-body {
+  color: rgb(226 232 240);
+}
+
+.markdown-body a {
+  color: rgb(var(--message-link));
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
+}
+
+.markdown-body a:hover {
+  color: rgb(var(--message-link-hover));
+}
+
+.dark .markdown-body .katex,
+.dark .markdown-body .katex .mord,
+.dark .markdown-body .katex .mathnormal {
+  color: inherit !important;
+}
+
+.markdown-body .katex-display {
+  margin: 0.9rem 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.1rem 0;
+}
+
+.markdown-body .shiki,
+.markdown-body .shiki span {
+  color: var(--shiki-light);
+  background-color: transparent !important;
+}
+
+.dark .markdown-body .shiki,
+.dark .markdown-body .shiki span {
+  color: var(--shiki-dark);
+  background-color: transparent !important;
+}
+
+.message-code-block {
+  border-color: rgb(var(--message-code-border));
+  background: rgb(var(--message-code-bg));
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 4px 12px -4px rgba(0, 0, 0, 0.05);
+}
+
+.message-code-block__header {
+  border-color: rgb(var(--message-code-border));
+  background: rgb(var(--message-code-header));
+  backdrop-filter: blur(8px);
+}
+
+.message-diagram-block {
+  border-color: rgb(var(--message-diagram-border));
+  background: rgb(var(--message-diagram-bg));
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 4px 12px -4px rgba(0, 0, 0, 0.05);
+}
+
+.message-diagram-block svg {
+  color: inherit;
 }
 
 .markdown-body hr {
@@ -110,6 +378,574 @@ nextjs-portal {
 
 .animate-scale-in {
   animation: scale-in 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ─── Liquid glass surfaces ─────────────────── */
+
+.glass-panel {
+  background: var(--liquid-glass-bg);
+  border: none;
+  box-shadow: var(--liquid-glass-shadow);
+  backdrop-filter: blur(var(--liquid-glass-blur)) saturate(1.22);
+  -webkit-backdrop-filter: blur(var(--liquid-glass-blur)) saturate(1.22);
+  color: rgb(15 23 42 / 0.92);
+  transition:
+    transform var(--admin-transition),
+    box-shadow var(--admin-transition),
+    background-color var(--admin-transition);
+}
+
+.dark .glass-panel {
+  color: rgb(241 245 249 / 0.92);
+}
+
+.glass-panel-strong {
+  background: var(--liquid-glass-bg-strong);
+  border: none;
+  box-shadow: var(--liquid-glass-shadow);
+  backdrop-filter: blur(var(--liquid-glass-blur-nav)) saturate(1.2);
+  -webkit-backdrop-filter: blur(var(--liquid-glass-blur-nav)) saturate(1.2);
+  color: rgb(15 23 42 / 0.92);
+}
+
+.dark .glass-panel-strong {
+  color: rgb(241 245 249 / 0.92);
+}
+
+.content-surface {
+  background: rgb(var(--content-bg));
+  border: none;
+  box-shadow: var(--content-shadow);
+}
+
+.control-glass {
+  background: var(--liquid-glass-field);
+  border: none;
+  box-shadow:
+    inset 0 1px 0 var(--liquid-glass-highlight),
+    0 2px 7px rgba(15, 23, 42, 0.04);
+  backdrop-filter: blur(12px) saturate(1.16);
+  -webkit-backdrop-filter: blur(12px) saturate(1.16);
+}
+
+.control-glass:hover {
+  background: rgba(255, 255, 255, 0.42);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.56),
+    0 7px 18px rgba(15, 23, 42, 0.08);
+  transform: translateY(-1px);
+}
+
+.soft-focus-ring {
+  outline: none;
+}
+
+.soft-focus-ring:focus-visible,
+.soft-focus-ring:focus-within {
+  box-shadow:
+    0 0 0 3px rgb(var(--focus-ring)),
+    var(--subtle-shadow);
+}
+
+.premium-surface {
+  background: rgb(var(--content-bg));
+  border: none;
+  box-shadow: var(--content-shadow);
+  border-radius: var(--radius-shell);
+}
+
+.app-chat-surface {
+  background: transparent;
+}
+
+@media (min-width: 768px) {
+  .app-chat-surface {
+    background: var(--liquid-glass-bg);
+    border: none;
+    box-shadow: var(--liquid-glass-shadow);
+    backdrop-filter: blur(var(--liquid-glass-blur)) saturate(1.18);
+    -webkit-backdrop-filter: blur(var(--liquid-glass-blur)) saturate(1.18);
+    border-radius: var(--radius-shell);
+  }
+}
+
+.premium-action {
+  background: rgb(var(--accent-fill));
+  color: rgb(var(--accent-foreground));
+  border-radius: var(--radius-button);
+  border: none;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  transition:
+    transform var(--admin-transition),
+    box-shadow var(--admin-transition),
+    opacity var(--admin-transition),
+    background-color var(--admin-transition);
+}
+
+.premium-action:hover:not(:disabled) {
+  background: var(--btn-hover);
+  transform: scale(1.02);
+  box-shadow: var(--subtle-shadow-active);
+}
+
+.premium-action:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.premium-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.new-session-glass-button {
+  background: linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.86),
+      rgba(255, 255, 255, 0.54)
+    ),
+    var(--liquid-glass-bg-strong);
+  border: none;
+  border-radius: var(--apple-corner-personal);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.78),
+    0 8px 22px rgba(15, 23, 42, 0.09);
+  backdrop-filter: blur(var(--liquid-glass-blur-nav)) saturate(1.22);
+  -webkit-backdrop-filter: blur(var(--liquid-glass-blur-nav)) saturate(1.22);
+  transition:
+    transform var(--admin-transition-spring),
+    box-shadow var(--admin-transition),
+    background-color var(--admin-transition);
+}
+
+.new-session-glass-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.86),
+    0 12px 28px rgba(15, 23, 42, 0.12);
+}
+
+.new-session-glass-button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.dark .new-session-glass-button {
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.66));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 12px 32px rgba(0, 0, 0, 0.35);
+}
+
+/* ─── iOS 26 Mobile Tokens ─────────────────── */
+
+.ios-glass-pill {
+  background: var(--liquid-glass-bg-strong);
+  border: none;
+  box-shadow: var(--liquid-glass-shadow-hover);
+  backdrop-filter: blur(8px) saturate(1.18);
+  -webkit-backdrop-filter: blur(8px) saturate(1.18);
+  border-radius: 28px;
+  transition:
+    transform var(--admin-transition),
+    box-shadow var(--admin-transition),
+    background-color var(--admin-transition);
+}
+
+.ios-glass-pill:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.ios-glass-pill:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.ios-glass-field {
+  background: var(--liquid-glass-field);
+  border: none;
+  box-shadow:
+    inset 0 1px 0 var(--liquid-glass-highlight),
+    0 2px 7px rgba(15, 23, 42, 0.04);
+  backdrop-filter: blur(12px) saturate(1.16);
+  -webkit-backdrop-filter: blur(12px) saturate(1.16);
+  transition:
+    transform var(--admin-transition),
+    box-shadow var(--admin-transition),
+    background-color var(--admin-transition);
+}
+
+.ios-glass-field:hover {
+  background: rgba(255, 255, 255, 0.42);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.56),
+    0 7px 18px rgba(15, 23, 42, 0.08);
+  transform: translateY(-1px);
+}
+
+.ios-glass-field:focus-within {
+  transform: translateY(-1px);
+}
+
+.liquid-selected {
+  position: relative;
+  isolation: isolate;
+  background: var(--liquid-selected-bg) !important;
+  color: rgb(15 23 42 / 0.94) !important;
+  box-shadow: var(--liquid-selected-shadow) !important;
+  backdrop-filter: blur(var(--liquid-glass-blur-nav)) saturate(1.28);
+  -webkit-backdrop-filter: blur(var(--liquid-glass-blur-nav)) saturate(1.28);
+  transform: translateY(-1px);
+}
+
+.liquid-selected::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: 1px;
+  z-index: -1;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 18% 0%, rgba(255, 255, 255, 0.7), transparent 36%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.22), transparent 54%);
+  opacity: 0.72;
+}
+
+.liquid-hover:hover {
+  background: rgba(255, 255, 255, 0.42) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.56),
+    0 7px 18px rgba(15, 23, 42, 0.08);
+  transform: translateY(-1px);
+}
+
+.dark .liquid-selected {
+  color: rgb(248 250 252 / 0.96) !important;
+}
+
+.dark .liquid-selected::after {
+  background:
+    radial-gradient(circle at 18% 0%, rgba(255, 255, 255, 0.16), transparent 38%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.08), transparent 56%);
+  opacity: 0.86;
+}
+
+.dark .liquid-hover:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 9px 24px rgba(0, 0, 0, 0.26);
+}
+
+.ios-menu-surface,
+.liquid-glass-strong {
+  background: var(--liquid-glass-bg-strong);
+  border: none;
+  box-shadow: var(--liquid-glass-shadow-hover);
+  backdrop-filter: blur(var(--liquid-glass-blur-nav)) saturate(1.22);
+  -webkit-backdrop-filter: blur(var(--liquid-glass-blur-nav)) saturate(1.22);
+}
+
+.ios-sidebar-surface {
+  background: var(--liquid-glass-bg-strong);
+  border: none;
+  box-shadow: var(--liquid-glass-shadow-hover);
+  backdrop-filter: blur(var(--liquid-glass-blur-nav)) saturate(1.22);
+  -webkit-backdrop-filter: blur(var(--liquid-glass-blur-nav)) saturate(1.22);
+  border-radius: var(--apple-corner-phone);
+  transition:
+    transform var(--admin-transition-spring),
+    opacity var(--admin-transition),
+    box-shadow var(--admin-transition);
+}
+
+.ios-sidebar-surface:hover {
+  box-shadow: var(--liquid-glass-shadow-hover);
+}
+
+.ios-control-strip {
+  background: rgb(var(--surface-control-strip));
+  border-top: none;
+}
+
+.admin-card {
+  background: var(--liquid-glass-bg);
+  border: none;
+  border-radius: var(--apple-corner-phone);
+  box-shadow: var(--liquid-glass-shadow);
+  backdrop-filter: blur(var(--liquid-glass-blur)) saturate(1.18);
+  -webkit-backdrop-filter: blur(var(--liquid-glass-blur)) saturate(1.18);
+  transition:
+    transform var(--admin-transition),
+    box-shadow var(--admin-transition),
+    background-color var(--admin-transition);
+}
+
+.admin-card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--liquid-glass-shadow-hover);
+}
+
+.right-panel-stack .glass-panel,
+.right-panel-stack .admin-card {
+  box-shadow: inset 0 1px 0 var(--liquid-glass-highlight);
+}
+
+.right-panel-stack .glass-panel:hover,
+.right-panel-stack .admin-card:hover {
+  transform: none;
+  box-shadow: inset 0 1px 0 var(--liquid-glass-highlight);
+}
+
+.admin-toolbar {
+  background: transparent;
+  border: none;
+  border-radius: var(--apple-corner-medium);
+  box-shadow: none;
+}
+
+.admin-secondary-action {
+  background: var(--liquid-glass-field);
+  color: var(--primary-text);
+  border: none;
+  border-radius: var(--apple-corner-laptop);
+  box-shadow:
+    inset 0 1px 0 var(--liquid-glass-highlight),
+    0 2px 7px rgba(15, 23, 42, 0.05);
+  backdrop-filter: blur(12px) saturate(1.16);
+  -webkit-backdrop-filter: blur(12px) saturate(1.16);
+}
+
+.admin-secondary-action:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.42);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.56),
+    0 8px 20px rgba(15, 23, 42, 0.09);
+  transform: translateY(-1px);
+}
+
+.admin-icon-action {
+  background: var(--liquid-glass-field);
+  color: #6b7280;
+  border: none;
+  box-shadow:
+    inset 0 1px 0 var(--liquid-glass-highlight),
+    0 2px 7px rgba(15, 23, 42, 0.05);
+  backdrop-filter: blur(12px) saturate(1.16);
+  -webkit-backdrop-filter: blur(12px) saturate(1.16);
+}
+
+.admin-icon-action:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.42);
+  transform: scale(1.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.56),
+    0 8px 20px rgba(15, 23, 42, 0.09);
+}
+
+.admin-badge {
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  border-radius: var(--apple-corner-small);
+  padding: 0.25rem 0.5rem;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.admin-badge-success {
+  background: rgba(220, 252, 231, 0.72);
+  color: #166534;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42);
+  backdrop-filter: blur(10px) saturate(1.1);
+  -webkit-backdrop-filter: blur(10px) saturate(1.1);
+}
+
+.admin-badge-warning {
+  background: rgba(254, 243, 199, 0.72);
+  color: #92400e;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42);
+  backdrop-filter: blur(10px) saturate(1.1);
+  -webkit-backdrop-filter: blur(10px) saturate(1.1);
+}
+
+.admin-badge-error {
+  background: rgba(254, 226, 226, 0.72);
+  color: #991b1b;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42);
+  backdrop-filter: blur(10px) saturate(1.1);
+  -webkit-backdrop-filter: blur(10px) saturate(1.1);
+}
+
+.admin-badge-neutral {
+  background: rgba(255, 255, 255, 0.42);
+  color: #4b5563;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(10px) saturate(1.1);
+  -webkit-backdrop-filter: blur(10px) saturate(1.1);
+}
+
+.admin-panel-header {
+  background: transparent;
+  border: none;
+  border-radius: var(--apple-corner-small);
+  margin: 0.5rem;
+  box-shadow: none;
+}
+
+.admin-panel-header:hover {
+  background: rgba(255, 255, 255, 0.34);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.44),
+    0 6px 16px rgba(15, 23, 42, 0.06);
+  backdrop-filter: blur(12px) saturate(1.12);
+  -webkit-backdrop-filter: blur(12px) saturate(1.12);
+}
+
+.admin-error-card {
+  background: rgba(254, 226, 226, 0.72);
+  color: #991b1b;
+  border: none;
+  border-radius: var(--apple-corner-phone);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.42),
+    var(--card-shadow);
+  backdrop-filter: blur(12px) saturate(1.1);
+  -webkit-backdrop-filter: blur(12px) saturate(1.1);
+}
+
+.dark .admin-secondary-action,
+.dark .admin-icon-action {
+  background: var(--liquid-glass-field);
+  color: rgb(226 232 240);
+}
+
+.dark .control-glass:hover,
+.dark .admin-secondary-action:hover:not(:disabled),
+.dark .admin-icon-action:hover:not(:disabled),
+.dark .admin-panel-header:hover {
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 9px 24px rgba(0, 0, 0, 0.26);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  transition:
+    transform var(--admin-transition),
+    box-shadow var(--admin-transition),
+    background-color var(--admin-transition),
+    color var(--admin-transition),
+    opacity var(--admin-transition);
+}
+
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+  transform: none !important;
+}
+
+.markdown-body table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.markdown-body th {
+  background: rgba(255, 255, 255, 0.34) !important;
+  border-bottom-color: rgb(15 23 42 / 0.04) !important;
+  font-size: 0.875rem;
+}
+
+.markdown-body td {
+  border-bottom-color: rgb(15 23 42 / 0.04) !important;
+}
+
+.markdown-body tr:hover td {
+  background: rgba(255, 255, 255, 0.34);
+  backdrop-filter: blur(10px) saturate(1.08);
+  -webkit-backdrop-filter: blur(10px) saturate(1.08);
+}
+
+.dark .ios-glass-field:hover,
+.dark .markdown-body tr:hover td {
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 9px 24px rgba(0, 0, 0, 0.26);
+}
+
+.dark .ios-glass-pill {
+  background: var(--liquid-glass-bg-strong);
+  border: none;
+  box-shadow: var(--liquid-glass-shadow-hover);
+}
+
+.ios-glass-sheet {
+  background: var(--liquid-glass-bg-strong);
+  border: none;
+  box-shadow: var(--liquid-glass-shadow-hover);
+  backdrop-filter: blur(var(--liquid-glass-blur-nav)) saturate(1.22);
+  -webkit-backdrop-filter: blur(var(--liquid-glass-blur-nav)) saturate(1.22);
+}
+
+.dark .ios-glass-sheet {
+  background: var(--liquid-glass-bg-strong);
+  border: none;
+  box-shadow: var(--liquid-glass-shadow-hover);
+}
+
+.ios-glass-drawer {
+  background: var(--liquid-glass-bg-strong);
+  border: none;
+  box-shadow: var(--liquid-glass-shadow-hover);
+  backdrop-filter: blur(var(--liquid-glass-blur-nav)) saturate(1.22);
+  -webkit-backdrop-filter: blur(var(--liquid-glass-blur-nav)) saturate(1.22);
+}
+
+.dark .ios-glass-drawer {
+  background: var(--liquid-glass-bg-strong);
+  border: none;
+  box-shadow: var(--liquid-glass-shadow-hover);
+}
+
+.ios-composer-surface {
+  background: var(--liquid-glass-bg-strong);
+  border: none;
+  box-shadow: var(--liquid-glass-shadow-hover);
+  backdrop-filter: blur(var(--liquid-glass-blur-nav)) saturate(1.24);
+  -webkit-backdrop-filter: blur(var(--liquid-glass-blur-nav)) saturate(1.24);
+  border-radius: var(--apple-corner-intimate);
+}
+
+.dark .ios-composer-surface {
+  background: var(--liquid-glass-bg-strong);
+  border: none;
+  box-shadow: var(--liquid-glass-shadow-hover);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass-panel,
+  .glass-panel-strong,
+  .content-surface,
+  .premium-surface,
+  .ios-glass-field,
+  .ios-menu-surface,
+  .ios-sidebar-surface,
+  .liquid-glass-strong,
+  .ios-glass-pill,
+  .ios-glass-sheet,
+  .ios-glass-drawer,
+  .ios-composer-surface {
+    background: rgb(var(--glass-bg-strong));
+  }
 }
 
 /* ─── Inspector panels ───────────────────────── */
@@ -199,11 +1035,12 @@ nextjs-portal {
 
 .scrollbar-thin {
   scrollbar-width: thin;
-  scrollbar-color: rgb(148 163 184 / 0.2) transparent;
+  scrollbar-color: rgb(var(--message-scrollbar)) transparent;
 }
 
 .scrollbar-thin::-webkit-scrollbar {
-  width: 4px;
+  width: 6px;
+  height: 6px;
 }
 
 .scrollbar-thin::-webkit-scrollbar-track {
@@ -211,13 +1048,32 @@ nextjs-portal {
 }
 
 .scrollbar-thin::-webkit-scrollbar-thumb {
-  background-color: rgb(148 163 184 / 0.25);
-  border-radius: 10px;
+  background-color: rgb(var(--message-scrollbar));
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: content-box;
   transition: background-color 0.2s;
 }
 
 .scrollbar-thin::-webkit-scrollbar-thumb:hover {
   background-color: rgb(148 163 184 / 0.45);
+}
+
+@media (max-width: 768px) {
+  :root {
+    --message-padding: 0.72rem 0.9rem;
+    --radius-shell: 1.35rem;
+    --radius-panel: 1.35rem;
+  }
+
+  .scrollbar-thin {
+    scrollbar-width: none;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
 }
 
 /* ─── Reduced motion ─────────────────────────── */

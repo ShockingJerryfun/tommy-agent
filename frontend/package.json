@@ -3,23 +3,34 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "AGENT_API_URL=http://127.0.0.1:8000 next dev -H 0.0.0.0",
-    "build": "next build",
-    "start": "AGENT_API_URL=http://127.0.0.1:8000 next start -H 0.0.0.0",
+    "dev": "AGENT_API_URL=${AGENT_API_URL:-http://127.0.0.1:8000} next dev -H 0.0.0.0",
+    "build": "NEXT_DIST_DIR=.next-build next build",
+    "start": "NEXT_DIST_DIR=.next-build AGENT_API_URL=http://127.0.0.1:8000 next start -H 0.0.0.0",
+    "e2e": "playwright test",
+    "e2e:desktop": "playwright test --project=desktop-chromium",
+    "e2e:mobile": "playwright test --project=mobile-iphone-12",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@microsoft/fetch-event-source": "2.0.1",
     "@xyflow/react": "^12.10.2",
+    "katex": "^0.16.45",
     "lucide-react": "^1.11.0",
     "mermaid": "^11.14.0",
     "next": "15.5.15",
     "react": "19.2.5",
     "react-dom": "19.2.5",
     "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1"
+    "rehype-katex": "^7.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
+    "shiki": "^4.0.2"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.11.2",
+    "@playwright/test": "^1.59.1",
     "@types/node": "22.19.17",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",

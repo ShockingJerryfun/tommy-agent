@@ -1,11 +1,4 @@
-"""Repository modules carved from the original monolithic store.
-
-Each repo owns one domain table (or a small cluster) and depends only on
-``_base.Connector`` for connection management. The composing object is
-``PostgresAgentStore`` in the parent package, which exists as a thin
-facade over these repos so that callers (and tests) keep their existing
-import surface.
-"""
+"""Storage repository ports."""
 
 from __future__ import annotations
 
@@ -26,11 +19,17 @@ from .context_pacts import ContextPactRepo
 from .events import EventRepo
 from .memories import MemoryRepo
 from .messages import MessageRepo
-from .prompts import MemoryInjectionRepo, PromptSnapshotRepo
+from .prompts import (
+    MemoryInjectionRepo,
+    PromptRepo,
+    PromptShortcutConflict,
+    PromptSnapshotRepo,
+)
 from .run_controls import RunControlRepo
 from .run_metrics import RunMetricsRepo
 from .runs import RunRepo
 from .schema import ensure_schema, reset_for_tests
+from .search import SearchRepo
 from .sessions import SessionRepo
 from .skill_catalog import SkillCatalogRepo
 from .skill_forge_runs import SkillForgeRunRepo
@@ -49,10 +48,13 @@ __all__ = [
     "MemoryInjectionRepo",
     "MemoryRepo",
     "MessageRepo",
+    "PromptRepo",
     "PromptSnapshotRepo",
+    "PromptShortcutConflict",
     "RunMetricsRepo",
     "RunControlRepo",
     "RunRepo",
+    "SearchRepo",
     "SessionRepo",
     "SkillCatalogRepo",
     "SkillForgeRunRepo",

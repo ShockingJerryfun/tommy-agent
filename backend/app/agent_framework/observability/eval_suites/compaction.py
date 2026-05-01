@@ -16,9 +16,7 @@ def eval_compaction(store) -> EvalReport:
     session_id = f"eval-sess-{uuid.uuid4().hex[:6]}"
     store.create_session(session_id=session_id, agent_id=agent_id, title="eval")
 
-    provider = MemoryProvider(
-        store=store, embedder=EchoEmbedder(), reranker=NullReranker()
-    )
+    provider = MemoryProvider(store=store, embedder=EchoEmbedder(), reranker=NullReranker())
 
     messages = [
         HumanMessage(content="Please remember that I drink coffee black with no sugar."),

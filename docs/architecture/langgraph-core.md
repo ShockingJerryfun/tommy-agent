@@ -15,13 +15,13 @@ knowledge.
 ## Checkpointing
 
 The production path should use LangGraph's PostgreSQL checkpointer rather than a custom
-checkpoint schema. `AsyncPostgresSaver` already handles migrations, checkpoint blobs,
+checkpoint schema. `AsyncPostgresSaver` already handles schema setup, checkpoint blobs,
 checkpoint writes, pending writes, and thread deletion.
 
 Tommy should wrap saver lifecycle in a small factory:
 
 - initialize from app config during FastAPI lifespan
-- call `setup()` explicitly during startup or migrations
+- call `setup()` explicitly during startup or schema setup
 - close the underlying connection/pool during shutdown
 - expose `delete_thread`, `prune`, and future copy/fork helpers through one module
 

@@ -1,8 +1,8 @@
 """Shared low-level helpers for repository modules.
 
-The application keeps using ``psycopg`` directly (Alembic only runs migrations).
-This module provides the shared connection wrapper, JSON helpers, and the
-``StoredMessage`` value object that every repository depends on.
+The application keeps using ``psycopg`` directly. This module provides the
+shared connection wrapper, JSON helpers, and the ``StoredMessage`` value object
+that every repository depends on.
 """
 
 from __future__ import annotations

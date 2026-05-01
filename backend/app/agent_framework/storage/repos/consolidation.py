@@ -92,7 +92,4 @@ class ConsolidationRunRepo:
                 """,
                 tuple(params),
             ).fetchall()
-        return [
-            dict(row) | {"metadata": loads(row.get("metadata_json", "{}"))}
-            for row in rows
-        ]
+        return [dict(row) | {"metadata": loads(row.get("metadata_json", "{}"))} for row in rows]

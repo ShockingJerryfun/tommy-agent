@@ -13,15 +13,9 @@ from .report import EvalReport
 def eval_hallucination(_store: Any | None = None) -> EvalReport:
     report = EvalReport(suite="hallucination")
 
-    tool_msg = ToolMessage(
-        content="results from the web", tool_call_id="t1", name="web_search"
-    )
-    no_cite = AIMessage(
-        content="The framework was released last Tuesday and is the best ever."
-    )
-    cite = AIMessage(
-        content="Released last Tuesday, see https://example.com for details."
-    )
+    tool_msg = ToolMessage(content="results from the web", tool_call_id="t1", name="web_search")
+    no_cite = AIMessage(content="The framework was released last Tuesday and is the best ever.")
+    cite = AIMessage(content="Released last Tuesday, see https://example.com for details.")
 
     flagged = analyze_citations([tool_msg, no_cite])
     report.add(

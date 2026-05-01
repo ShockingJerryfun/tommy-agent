@@ -31,6 +31,7 @@ class RunRepo:
         metadata: dict[str, Any] | None = None,
         run_id: str | None = None,
         status: str = "queued",
+        idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         if status not in VALID_RUN_STATUS:
             raise ValueError(f"Unsupported run status: {status}")
@@ -40,13 +41,23 @@ class RunRepo:
             conn.execute(
                 """
                 INSERT INTO runs(
-                    id, session_id, agent_id, status, input, metadata_json,
+                    id, session_id, agent_id, status, input, idempotency_key, metadata_json,
                     assistant_message_id, cancel_requested, created_at, started_at,
                     updated_at, finished_at, error
                 )
-                VALUES (?, ?, ?, ?, ?, ?, NULL, 0, ?, NULL, ?, NULL, '')
+                VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 0, ?, NULL, ?, NULL, '')
                 """,
-                (rid, session_id, agent_id, status, input, dumps(metadata), now, now),
+                (
+                    rid,
+                    session_id,
+                    agent_id,
+                    status,
+                    input,
+                    idempotency_key,
+                    dumps(metadata),
+                    now,
+                    now,
+                ),
             )
         run = self.get_run(rid)
         if run is None:
@@ -56,6 +67,23 @@ class RunRepo:
     def get_run(self, run_id: str) -> dict[str, Any] | None:
         with self._connector.connect() as conn:
             row = conn.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
+        return self._run_from_row(row) if row is not None else None
+
+    def find_by_idempotency_key(
+        self,
+        session_id: str,
+        idempotency_key: str,
+    ) -> dict[str, Any] | None:
+        with self._connector.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM runs
+                WHERE session_id = ? AND idempotency_key = ?
+                ORDER BY created_at ASC
+                LIMIT 1
+                """,
+                (session_id, idempotency_key),
+            ).fetchone()
         return self._run_from_row(row) if row is not None else None
 
     def update_run_status(
@@ -357,6 +385,7 @@ class RunRepo:
             "agent_id": row["agent_id"],
             "status": row["status"],
             "input": row["input"],
+            "idempotency_key": row["idempotency_key"],
             "metadata": loads(row["metadata_json"]),
             "assistant_message_id": row["assistant_message_id"],
             "cancel_requested": bool(row["cancel_requested"]),

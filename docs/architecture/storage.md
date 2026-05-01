@@ -50,15 +50,15 @@ Markdown files should remain curated human-editable context:
 Search and runtime recall should use database-backed memory records and indexed chunks,
 not raw Markdown scanning as the primary path.
 
-## Migration Notes
+## Runtime Storage Notes
 
-Known local issues to handle during migration:
+Local state rules:
 
 - Duplicate local agent data directories should not be recreated; PostgreSQL owns runtime
   session history.
 - root `MEMORY.md` is not the agent memory file currently read by prompts.
-- previous local state contains run events without run rows and should be treated as
-  migration input only.
+- previous local state can contain run events without run rows and should be treated as
+  archived input.
 - soft-deleted sessions can still have messages/events by design today; future retention
   should make this explicit.
 - LangGraph checkpoint tables can grow faster than app state and need retention or pruning.

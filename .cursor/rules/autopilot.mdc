@@ -1,70 +1,74 @@
 ---
-description: Tommy SOTA rebuild autopilot protocol — auto-chains stages S0..S8.
+description: Tommy autopilot protocol — chain-driven, foreman + subagent execution model.
 alwaysApply: true
 ---
 
-# Tommy SOTA Rebuild — Autopilot Protocol
+# Tommy Autopilot Protocol (chain-agnostic)
 
-This project chains the SOTA rebuild stages **S0 → S8** automatically via a
-Cursor `stop` hook. Whenever you finish a turn the hook re-enters you on the
-next pending stage. You must follow the protocol below for the chain to work.
+This project uses a Cursor `stop` hook to drive arbitrary multi-stage chains
+defined in `.cursor/state/stages.json`. The currently active chain is
+identified by `active_chain` and `chain_label` in that file (current chain:
+**Tommy UX Parity** — align chat UX with ChatGPT/Cursor; reference plan at
+`.cursor/plans/ux_parity_autopilot_5d06828e.plan.md`). When a chain finishes
+the autopilot stops; loading a new chain is a one-shot operation outside any
+agent turn (see Operator commands).
 
-## On every turn
+## Foreman + subagent execution model
 
-1. **Read state first.** Run, or mentally consult, `.cursor/state/stages.json`.
-   The autopilot has already flipped the next stage to `in_progress` and the
-   `[AUTOPILOT — STAGE Sx]` system message tells you which one. If you ever
-   start a turn without an autopilot prompt and an `in_progress` stage exists,
-   continue that stage; do not jump ahead.
-2. **Execute the stage end-to-end.** No clarifying questions, no waiting for
-   approval — the user has already approved the blueprint and §13 decisions.
-   Use Cursor's native file/edit/terminal tools; do not just emit Markdown.
-3. **Quality gates that must hold before completing a stage:**
+Within an autopilot turn the parent agent (this conversation) is the
+**foreman**, not the implementer. For each stage the foreman MUST:
+
+1. Read the autopilot prompt that the stop hook injected (it carries the
+   stage id, title, scope, and acceptance criteria) and re-read this rule.
+2. Dispatch ONE implementer subagent via the Task tool with
+   `subagent_type=generalPurpose`, `model=gpt-5.5-medium`. The prompt to the
+   subagent must include: full stage scope verbatim, acceptance criteria,
+   starting file paths, and a strict instruction to use native edit/terminal
+   tools (no Markdown-only output). The subagent is told NOT to call
+   `autopilot.sh complete`.
+3. When the subagent returns, verify the work:
    - `python -m pytest -x -q` from `backend/` exits 0.
    - `python -m ruff check` from `backend/` exits 0.
    - Public API behavior is preserved unless the stage explicitly changes it.
    - New behavior has tests.
-   - If the stage adds DB schema, ship an Alembic migration in
-     `backend/migrations/versions/` and confirm `alembic upgrade head` succeeds.
+   - If schema changed, an Alembic migration is present and
+     `alembic upgrade head` succeeds.
+   - The stage-specific acceptance bullets are met.
+4. If any gate fails, resume the same subagent (Task with `resume=<id>`) with
+   a precise fix list. Allow up to **3 total attempts** per stage.
+5. When all gates pass, run from the workspace root:
+   ```bash
+   ./.cursor/hooks/autopilot.sh complete <STAGE_ID>
+   ```
+   This is the ONLY signal the autopilot uses to advance. After the call,
+   end your turn cleanly — the stop hook will inject the next stage's
+   prompt automatically.
+6. If after 3 attempts the gates still do not pass, run:
+   ```bash
+   ./.cursor/hooks/autopilot.sh block <STAGE_ID> "<one-line reason>"
+   ```
+   and stop the turn.
 
-## Signaling completion (this is what advances the chain)
+## Hard rules
 
-When the stage is fully done, run **from the workspace root**:
-
-```bash
-./.cursor/hooks/autopilot.sh complete <STAGE_ID>
-```
-
-That is the **only** signal the autopilot uses to advance. Do not skip it,
-do not call it before the work is actually green, and do not call it for a
-stage you did not just finish. After the call, end your turn cleanly — the
-`stop` hook will inject the next stage's prompt automatically.
-
-## Signaling a real blocker
-
-If you genuinely cannot proceed (missing credential, ambiguous user
-decision that contradicts §13, irrecoverable failure), run:
-
-```bash
-./.cursor/hooks/autopilot.sh block <STAGE_ID> "<one-line reason>"
-```
-
-Then stop. The autopilot will pause and surface the blocker to the user
-instead of advancing.
+- The foreman does NOT implement the stage directly. Always dispatch a
+  subagent. Exception: trivial bootstrap / glue work outside any defined
+  stage may be done directly.
+- Decisions encoded in the chain's reference plan are final. Do not ask
+  clarifying questions.
+- Never call `autopilot.sh complete` for more than one stage per turn.
+- Never call `autopilot.sh enable` / `disable` from inside a turn.
+- Never edit `.cursor/state/stages.json` by hand — always go through
+  `autopilot.sh` so the audit log in `.cursor/logs/autopilot.log` stays
+  consistent.
+- If the user explicitly says "stop autopilot" / "pause" / "halt", call
+  `autopilot.sh disable` and end the turn.
 
 ## Operator commands (informational)
 
 - `./.cursor/hooks/autopilot.sh status` — show the stage table.
-- `./.cursor/hooks/autopilot.sh disable` / `enable` — pause / resume the chain.
+- `./.cursor/hooks/autopilot.sh disable` / `enable` — pause / resume.
 - `./.cursor/hooks/autopilot.sh unblock <STAGE_ID>` — clear a blocked stage.
 - `./.cursor/hooks/autopilot.sh reset` — set every stage back to `pending`.
-
-## Safety rails
-
-- Never edit `.cursor/state/stages.json` by hand from inside a turn — always
-  go through `autopilot.sh` so the audit log in `.cursor/logs/autopilot.log`
-  stays consistent.
-- Never call `autopilot.sh complete` for more than one stage per turn.
-- Never call `autopilot.sh enable`/`disable` from inside a turn.
-- If the user explicitly says "stop autopilot" / "pause" / "halt", call
-  `autopilot.sh disable` and end the turn.
+- `./.cursor/hooks/autopilot.sh set-chain <path/to/chain.json>` — load a
+  fresh chain; replaces `stages.json` atomically and writes to the audit log.

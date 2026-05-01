@@ -11,7 +11,9 @@ from ._base import Connector, dumps, loads, utc_now
 class RunMetricsRepo:
     SELECT_COLUMNS = (
         "id, session_id, run_id, agent_id, started_at, finished_at, "
-        "duration_ms, turn_count, tool_count, tool_error_count, "
+        "duration_ms, model, prompt_tokens, completion_tokens, total_tokens, "
+        "reasoning_tokens, finish_reason, status, error_count, cancelled, interrupted, "
+        "turn_count, tool_count, tool_error_count, "
         "prompt_chars, output_chars, loop_signals, drift_signals, "
         "citations_count, terminal_reason, metadata_json"
     )
@@ -28,6 +30,16 @@ class RunMetricsRepo:
         started_at: str | None = None,
         finished_at: str | None = None,
         duration_ms: float = 0.0,
+        model: str | None = None,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+        total_tokens: int | None = None,
+        reasoning_tokens: int | None = None,
+        finish_reason: str | None = None,
+        status: str | None = None,
+        error_count: int = 0,
+        cancelled: bool = False,
+        interrupted: bool = False,
         turn_count: int = 0,
         tool_count: int = 0,
         tool_error_count: int = 0,
@@ -46,15 +58,29 @@ class RunMetricsRepo:
                 """
                 INSERT INTO run_metrics(
                     id, session_id, run_id, agent_id, started_at, finished_at,
-                    duration_ms, turn_count, tool_count, tool_error_count,
+                    duration_ms, model, prompt_tokens, completion_tokens, total_tokens,
+                    reasoning_tokens, finish_reason, status, error_count, cancelled, interrupted,
+                    turn_count, tool_count, tool_error_count,
                     prompt_chars, output_chars, loop_signals, drift_signals,
                     citations_count, terminal_reason, metadata_json
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                )
                 ON CONFLICT(session_id, run_id) DO UPDATE SET
                     agent_id = excluded.agent_id,
                     finished_at = excluded.finished_at,
                     duration_ms = excluded.duration_ms,
+                    model = excluded.model,
+                    prompt_tokens = excluded.prompt_tokens,
+                    completion_tokens = excluded.completion_tokens,
+                    total_tokens = excluded.total_tokens,
+                    reasoning_tokens = excluded.reasoning_tokens,
+                    finish_reason = excluded.finish_reason,
+                    status = excluded.status,
+                    error_count = excluded.error_count,
+                    cancelled = excluded.cancelled,
+                    interrupted = excluded.interrupted,
                     turn_count = excluded.turn_count,
                     tool_count = excluded.tool_count,
                     tool_error_count = excluded.tool_error_count,
@@ -74,6 +100,16 @@ class RunMetricsRepo:
                     started,
                     finished_at,
                     float(duration_ms),
+                    model,
+                    prompt_tokens,
+                    completion_tokens,
+                    total_tokens,
+                    reasoning_tokens,
+                    finish_reason,
+                    status,
+                    int(error_count),
+                    bool(cancelled),
+                    bool(interrupted),
                     int(turn_count),
                     int(tool_count),
                     int(tool_error_count),
@@ -138,6 +174,16 @@ def _hydrate(row: Any) -> dict[str, Any]:
         "started_at": row["started_at"],
         "finished_at": row["finished_at"],
         "duration_ms": float(row["duration_ms"]),
+        "model": row["model"],
+        "prompt_tokens": row["prompt_tokens"],
+        "completion_tokens": row["completion_tokens"],
+        "total_tokens": row["total_tokens"],
+        "reasoning_tokens": row["reasoning_tokens"],
+        "finish_reason": row["finish_reason"],
+        "status": row["status"],
+        "error_count": int(row["error_count"] or 0),
+        "cancelled": bool(row["cancelled"]),
+        "interrupted": bool(row["interrupted"]),
         "turn_count": row["turn_count"],
         "tool_count": row["tool_count"],
         "tool_error_count": row["tool_error_count"],

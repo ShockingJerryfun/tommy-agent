@@ -19,7 +19,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..store import PostgresAgentStore
+from ..storage import PostgresAgentStore
 
 _CITATION_RX = re.compile(r"https?://\S+|\[[^\]]+\]\([^)]+\)")
 
@@ -46,6 +46,26 @@ class ReplayReport:
         return self.errors == 0 and self.total_inputs > 0
 
 
+@dataclass
+class RunEventsReplayReport:
+    run_id: str
+    events: list[dict[str, Any]]
+    event_count: int
+    event_types: list[str]
+    reconstructed_text: str
+    terminal_event: str | None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "run_id": self.run_id,
+            "events": self.events,
+            "event_count": self.event_count,
+            "event_types": self.event_types,
+            "reconstructed_text": self.reconstructed_text,
+            "terminal_event": self.terminal_event,
+        }
+
+
 ReplayRunner = Callable[[str, dict[str, Any]], dict[str, Any]]
 """Callable that executes a single user message and returns a result.
 
@@ -68,7 +88,7 @@ def default_replay_runner(
     from langchain_core.messages import AIMessage, HumanMessage
 
     from ..agent import build_agent_graph
-    from ..checkpointing import build_thread_config, create_checkpointer
+    from ..runtime.checkpointing import build_thread_config, create_checkpointer
 
     graph = build_agent_graph(checkpointer=create_checkpointer())
     thread_id = str(context.get("thread_id") or context.get("session_id") or "replay")
@@ -149,3 +169,44 @@ def replay_session(
         report.total_tools += tool_count
 
     return report
+
+
+def replay_run_events(
+    store: PostgresAgentStore,
+    *,
+    run_id: str,
+    runner: Callable[..., Any] | None = None,
+    limit: int = 1000,
+) -> RunEventsReplayReport:
+    """Replay a run from persisted run_events only.
+
+    ``runner`` is accepted only as a guard seam for tests and is never invoked:
+    this replay path intentionally does not call models or tools.
+    """
+
+    del runner
+    rows = store.list_run_events_after(run_id, after_sequence=None, limit=limit)
+    events = [dict(row) for row in rows]
+    text_parts: list[str] = []
+    terminal_event: str | None = None
+    for row in events:
+        payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
+        event_type = str(row.get("type") or "")
+        agent_event = payload.get("agent_event") if isinstance(payload, dict) else None
+        if isinstance(agent_event, dict) and isinstance(agent_event.get("type"), str):
+            event_type = agent_event["type"]
+            data = agent_event.get("data") if isinstance(agent_event.get("data"), dict) else {}
+        else:
+            data = payload
+        if event_type == "message_delta":
+            text_parts.append(str(data.get("content") or ""))
+        if event_type in {"done", "error", "cancelled", "interrupted", "stopped"}:
+            terminal_event = event_type
+    return RunEventsReplayReport(
+        run_id=run_id,
+        events=events,
+        event_count=len(events),
+        event_types=[str(event.get("type") or "") for event in events],
+        reconstructed_text="".join(text_parts),
+        terminal_event=terminal_event,
+    )

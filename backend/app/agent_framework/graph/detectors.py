@@ -83,7 +83,7 @@ def detect_loop(messages: list[Any], *, window: int = LOOP_WINDOW) -> LoopSignal
     for message in reversed(messages):
         if not isinstance(message, AIMessage):
             continue
-        for call in (message.tool_calls or []):
+        for call in message.tool_calls or []:
             if not isinstance(call, dict):
                 continue
             key = _canonicalize_call(call)
@@ -227,9 +227,7 @@ def analyze_citations(
         return CitationSignal()
 
     triggering_tools = [
-        tm.name
-        for tm in tool_messages_since_assistant
-        if tm.name in citation_required_tools
+        tm.name for tm in tool_messages_since_assistant if tm.name in citation_required_tools
     ]
     if not triggering_tools:
         return CitationSignal()

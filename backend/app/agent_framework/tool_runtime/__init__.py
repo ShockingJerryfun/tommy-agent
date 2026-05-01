@@ -10,11 +10,37 @@ Public surface:
   a :class:`ToolResult`; large outputs are spilled to ``tool_artifacts``
   and the model receives a compact reference JSON.
 - :func:`load_permission_policy` / :class:`PermissionPolicy` — yaml-driven
-  policy used by both the runtime and the legacy ``approvals`` module.
+  policy used by tool execution and approval handling.
 """
 
 from __future__ import annotations
 
+from .catalog import (
+    RUNTIME_TOOL_CONTEXT,
+    ContextPactUpdateArgs,
+    DelegateTaskArgs,
+    ListLocalDirectoryArgs,
+    ListWorkspaceArgs,
+    ReadLocalFileArgs,
+    ReadWorkspaceFileArgs,
+    RunShellCommandArgs,
+    SkillProposeArgs,
+    ToolRegistry,
+    WebSearchArgs,
+    WriteLocalFileArgs,
+    context_pact_update,
+    create_default_registry,
+    delegate_task,
+    get_current_time,
+    list_local_directory,
+    list_workspace,
+    read_local_file,
+    read_workspace_file,
+    run_shell_command,
+    skill_propose,
+    web_search,
+    write_local_file,
+)
 from .executor import (
     ARTIFACT_SPILL_THRESHOLD,
     ToolRuntime,
@@ -36,13 +62,37 @@ from .result import (
 __all__ = [
     "ARTIFACT_SPILL_THRESHOLD",
     "ArtifactRef",
+    "ContextPactUpdateArgs",
+    "DelegateTaskArgs",
+    "ListLocalDirectoryArgs",
+    "ListWorkspaceArgs",
     "PermissionDecision",
     "PermissionPolicy",
+    "RUNTIME_TOOL_CONTEXT",
+    "ReadLocalFileArgs",
+    "ReadWorkspaceFileArgs",
+    "RunShellCommandArgs",
+    "SkillProposeArgs",
     "ToolError",
     "ToolErrorCode",
     "ToolResult",
     "ToolRuntime",
+    "ToolRegistry",
+    "WebSearchArgs",
+    "WriteLocalFileArgs",
+    "context_pact_update",
+    "create_default_registry",
     "default_permission_policy",
+    "delegate_task",
+    "get_current_time",
+    "list_local_directory",
+    "list_workspace",
     "load_permission_policy",
     "make_tool_runtime",
+    "read_local_file",
+    "read_workspace_file",
+    "run_shell_command",
+    "skill_propose",
+    "web_search",
+    "write_local_file",
 ]

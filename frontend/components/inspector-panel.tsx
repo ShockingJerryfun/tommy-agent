@@ -24,7 +24,10 @@ export function InspectorPanel({
   const [height, setHeight] = useState<number | undefined>();
   const panelRef = useRef<HTMLElement>(null);
 
-  function startResize(edge: "top" | "bottom", event: React.PointerEvent<HTMLDivElement>) {
+  function startResize(
+    edge: "top" | "bottom",
+    event: React.PointerEvent<HTMLDivElement>,
+  ) {
     if (!open) return;
     event.preventDefault();
     const startY = event.clientY;
@@ -32,7 +35,8 @@ export function InspectorPanel({
 
     function onPointerMove(moveEvent: PointerEvent) {
       const delta = moveEvent.clientY - startY;
-      const nextHeight = edge === "top" ? startHeight - delta : startHeight + delta;
+      const nextHeight =
+        edge === "top" ? startHeight - delta : startHeight + delta;
       setHeight(Math.max(112, Math.min(window.innerHeight * 0.86, nextHeight)));
     }
 
@@ -52,7 +56,7 @@ export function InspectorPanel({
   return (
     <section
       ref={panelRef}
-      className="resizable-inspector-panel rounded-panel bg-white/82 shadow-soft backdrop-blur-xl dark:bg-slate-950/62"
+      className="glass-panel resizable-inspector-panel rounded-[var(--radius-panel)]"
       data-resized={open && height ? "true" : undefined}
       style={open && height ? { height } : undefined}
     >
@@ -70,7 +74,7 @@ export function InspectorPanel({
         onToggle={(event) => setOpen(event.currentTarget.open)}
         open={open}
       >
-        <summary className="flex shrink-0 cursor-pointer list-none items-center justify-between gap-2 border-b border-slate-950/[0.06] px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400 dark:border-white/[0.07] [&::-webkit-details-marker]:hidden">
+        <summary className="admin-panel-header flex shrink-0 cursor-pointer list-none items-center justify-between gap-2 px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 transition hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-black/10 dark:text-slate-400 dark:hover:text-slate-200 [&::-webkit-details-marker]:hidden">
           <span className="flex min-w-0 items-center gap-2">
             {icon}
             <span className="truncate">{title}</span>

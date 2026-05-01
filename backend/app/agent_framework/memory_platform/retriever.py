@@ -70,9 +70,7 @@ class HybridRetriever:
 
         memories_repo = getattr(self.store, "memories", self.store)
 
-        fts_rows = memories_repo.search_fts(
-            agent_id=agent_id, query=query, limit=self.fts_limit
-        )
+        fts_rows = memories_repo.search_fts(agent_id=agent_id, query=query, limit=self.fts_limit)
         embedding = self.embedder.embed(query)
         vector_rows = (
             memories_repo.search_vector(

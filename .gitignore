@@ -7,6 +7,7 @@ RUN_LOCAL_SERVERS.txt
 
 # Runtime data
 data/*
+data/attachments/
 !data/agents/
 data/agents/*
 !data/agents/default/
@@ -40,6 +41,8 @@ node_modules/
 frontend/node_modules/
 .next/
 frontend/.next/
+.next-build/
+frontend/.next-build/
 out/
 frontend/out/
 *.tsbuildinfo
@@ -50,6 +53,8 @@ yarn-error.log*
 pnpm-debug.log*
 
 # Local tooling caches
+.cursor/settings.json
+.bin/
 .playwright-cli/
 playwright-report/
 test-results/

@@ -148,9 +148,7 @@ def install_builtin_hooks(
             timeout_seconds=15.0,
             failure_policy="warn",
         )
-        n2, p2, h2 = make_stale_approval_cleanup_hook(
-            store, ttl_seconds=approval_ttl_seconds
-        )
+        n2, p2, h2 = make_stale_approval_cleanup_hook(store, ttl_seconds=approval_ttl_seconds)
         registry.register(
             name=n2,
             phase=p2,

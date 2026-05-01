@@ -18,7 +18,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from ..store import PostgresAgentStore
+from ..storage import PostgresAgentStore
 
 
 class RunMetricsRecorder:
@@ -44,6 +44,13 @@ class RunMetricsRecorder:
         self.loop_signals = 0
         self.drift_signals = 0
         self.citations_count = 0
+        self.model: str | None = None
+        self.prompt_tokens: int | None = None
+        self.completion_tokens: int | None = None
+        self.total_tokens: int | None = None
+        self.reasoning_tokens: int | None = None
+        self.finish_reason: str | None = None
+        self.error_count = 0
         self.metadata: dict[str, Any] = {}
         self.finalized = False
 
@@ -80,6 +87,26 @@ class RunMetricsRecorder:
     def record_citations(self, n: int) -> None:
         self.citations_count += int(n)
 
+    def record_token_usage(
+        self,
+        *,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+        total_tokens: int | None = None,
+        reasoning_tokens: int | None = None,
+        model: str | None = None,
+        finish_reason: str | None = None,
+    ) -> None:
+        self.prompt_tokens = _merge_optional_int(self.prompt_tokens, prompt_tokens)
+        self.completion_tokens = _merge_optional_int(self.completion_tokens, completion_tokens)
+        self.total_tokens = _merge_optional_int(self.total_tokens, total_tokens)
+        self.reasoning_tokens = _merge_optional_int(self.reasoning_tokens, reasoning_tokens)
+        self.model = model or self.model
+        self.finish_reason = finish_reason or self.finish_reason
+
+    def record_error(self, n: int = 1) -> None:
+        self.error_count += int(n)
+
     def update_metadata(self, patch: dict[str, Any]) -> None:
         self.metadata.update(patch or {})
 
@@ -89,6 +116,7 @@ class RunMetricsRecorder:
         self,
         *,
         terminal_reason: str = "",
+        status: str | None = None,
         output_chars: int | None = None,
     ) -> dict[str, Any]:
         from datetime import UTC, datetime
@@ -110,6 +138,16 @@ class RunMetricsRecorder:
             started_at=self._started_at,
             finished_at=finished_at,
             duration_ms=duration_ms,
+            model=self.model,
+            prompt_tokens=self.prompt_tokens,
+            completion_tokens=self.completion_tokens,
+            total_tokens=self.total_tokens,
+            reasoning_tokens=self.reasoning_tokens,
+            finish_reason=self.finish_reason,
+            status=status or terminal_reason,
+            error_count=self.error_count,
+            cancelled=(status or terminal_reason) == "cancelled",
+            interrupted=(status or terminal_reason) == "interrupted",
             turn_count=self.turn_count,
             tool_count=self.tool_count,
             tool_error_count=self.tool_error_count,
@@ -123,3 +161,11 @@ class RunMetricsRecorder:
         )
         self.finalized = True
         return row
+
+
+def _merge_optional_int(current: int | None, incoming: int | None) -> int | None:
+    if incoming is None:
+        return current
+    if current is None:
+        return int(incoming)
+    return current + int(incoming)

@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from ..store import PostgresAgentStore
+from ..storage import PostgresAgentStore
 
 
 @dataclass(frozen=True)
@@ -95,7 +95,5 @@ def subagent_summary_section(
 ) -> str:
     """Convenience wrapper used by ContextBuilder integrations."""
 
-    summaries = list_recent_summaries(
-        store, parent_session_id=parent_session_id, limit=limit
-    )
+    summaries = list_recent_summaries(store, parent_session_id=parent_session_id, limit=limit)
     return subagent_summary_markdown(summaries)

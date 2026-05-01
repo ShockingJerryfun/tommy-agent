@@ -24,7 +24,14 @@ from .delegate import (
     SubagentRunner,
     default_subagent_runner,
 )
+from .hermes import (
+    HermesDelegateConfig,
+    HermesDelegateUnavailable,
+    hermes_result_events,
+    run_hermes_delegate,
+)
 from .merger import BestOfNMerger, MergedSubagentResult, score_response
+from .orchestrator import create_subagent_registry, run_delegate_task
 from .roles import (
     SubagentRole,
     list_role_ids,
@@ -40,6 +47,10 @@ from .summary import (
 
 __all__ = [
     "BestOfNMerger",
+    "create_subagent_registry",
+    "HermesDelegateConfig",
+    "HermesDelegateUnavailable",
+    "hermes_result_events",
     "MergedSubagentResult",
     "SubagentDelegator",
     "SubagentResult",
@@ -51,6 +62,8 @@ __all__ = [
     "list_role_ids",
     "registry_for_role",
     "role_registry",
+    "run_delegate_task",
+    "run_hermes_delegate",
     "score_response",
     "subagent_summary_markdown",
     "subagent_summary_section",

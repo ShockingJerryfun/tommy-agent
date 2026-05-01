@@ -8,14 +8,14 @@ from langchain_core.messages import ToolMessage
 from langchain_core.runnables import Runnable
 from langgraph.config import get_stream_writer
 
-from ..approvals import approval_pending_tool_message, evaluate_tool_call
-from ..model_options import bind_runtime_model_options
-from ..prompts import messages_with_context
+from ..prompt_context import messages_with_context
+from ..runtime.model_options import bind_runtime_model_options
 from ..state import AgentState
 from ..storage import get_agent_store
-from ..tool_runtime import ToolRuntime
-from ..tools import ToolRegistry
-from .routing import raise_if_stopped, tool_calls
+from ..tool_runtime import ToolRegistry, ToolRuntime
+from ..tool_runtime.approvals import approval_pending_tool_message, evaluate_tool_call
+from .exceptions import RunStopped
+from .routing import raise_if_stopped, run_stop_requested, tool_calls
 
 
 def write_stream_event(payload: dict[str, Any]) -> None:
@@ -46,10 +46,10 @@ def special_tool_event(name: str, content: str) -> dict[str, Any] | None:
 def command_scope(metadata: dict[str, Any]) -> str:
     frontend_settings = metadata.get("frontend_settings")
     if isinstance(frontend_settings, dict):
-        scope = str(frontend_settings.get("commandScope") or "restricted")
+        scope = str(frontend_settings.get("commandScope") or "unrestricted")
         if scope in {"restricted", "unrestricted"}:
             return scope
-    return "restricted"
+    return "unrestricted"
 
 
 def agent_response_update(response: Any) -> dict[str, Any]:
@@ -114,106 +114,130 @@ def create_action_node(tool_registry: ToolRegistry) -> Callable[[AgentState], di
         session_id = str(runtime_context.get("session_id") or "")
         agent_id = str(runtime_context.get("agent_id") or "default")
         run_id = str((runtime_context.get("metadata") or {}).get("run_id") or f"run-{session_id}")
-        for index, call in enumerate(tool_calls(messages[-1])):
-            raise_if_stopped(state)
-            name = call.get("name", "")
-            args = call.get("args") or {}
-            tool_call_id = call.get("id") or f"tool_call_{index}"
-            write_stream_event(
-                {
-                    "type": "tool_start",
-                    "tool": name,
-                    "tool_call_id": tool_call_id,
-                    "args": args if isinstance(args, dict) else {},
-                }
-            )
-            normalized_args = args if isinstance(args, dict) else {}
-            decision = evaluate_tool_call(name, normalized_args, command_scope=scope)
-            tool_message_status: str
-            artifact_meta: dict[str, Any] | None = None
-            if decision.needs_approval:
-                try:
-                    if session_id:
-                        approval_store.ensure_session(session_id, agent_id=agent_id)
-                    approval = approval_store.create_approval_request(
-                        session_id=session_id,
-                        run_id=run_id,
-                        tool_call_id=tool_call_id,
-                        tool_name=name,
-                        args=normalized_args,
-                        risk_level=decision.risk_level,
-                        summary=decision.summary,
-                        metadata={"source": "agent_tool_call"},
-                    )
-                    write_stream_event({"type": "approval_pending", "approval": approval})
-                    content = approval_pending_tool_message(approval)
-                    tool_message_status = "pending_approval"
-                except Exception as exc:  # noqa: BLE001 - approval errors are visible to the model.
-                    content = f"Approval queue failed for {name}: {type(exc).__name__}: {exc}"
-                    tool_message_status = "error"
-            else:
-                # The runtime owns validate→permission→run→persist→artifact.
-                # We pass ``approval_granted=True`` because the legacy approval
-                # gate above already approved (or auto-approved under
-                # unrestricted scope).
-                exec_context = dict(runtime_context)
-                exec_context["approval_granted"] = True
-                # ``persist=False`` because ``RunManager`` already drives
-                # tool_calls upserts from the tool_start/tool_end stream
-                # events. Artifact spill is independent and always runs.
-                result = runtime.execute(
-                    name,
-                    normalized_args,
-                    tool_call_id=tool_call_id,
-                    context=exec_context,
-                    store=approval_store,
-                    session_id=session_id or None,
-                    run_id=run_id,
-                    command_scope=scope,
-                    persist=False,
-                )
-                content = result.content
-                tool_message_status = result.status
-                if result.artifact is not None:
-                    artifact_meta = {
-                        "artifact_id": result.artifact.artifact_id,
-                        "size_bytes": result.artifact.size_bytes,
-                        "spilled": True,
+        all_calls = list(tool_calls(messages[-1]))
+        completed_ids: set[str] = set()
+        stopped = False
+        try:
+            for index, call in enumerate(all_calls):
+                raise_if_stopped(state)
+                name = call.get("name", "")
+                args = call.get("args") or {}
+                tool_call_id = call.get("id") or f"tool_call_{index}"
+                write_stream_event(
+                    {
+                        "type": "tool_start",
+                        "tool": name,
+                        "tool_call_id": tool_call_id,
+                        "args": args if isinstance(args, dict) else {},
                     }
+                )
+                normalized_args = args if isinstance(args, dict) else {}
+                decision = evaluate_tool_call(name, normalized_args, command_scope=scope)
+                tool_message_status: str
+                artifact_meta: dict[str, Any] | None = None
+                if decision.needs_approval:
+                    try:
+                        if session_id:
+                            approval_store.ensure_session(session_id, agent_id=agent_id)
+                        approval = approval_store.create_approval_request(
+                            session_id=session_id,
+                            run_id=run_id,
+                            tool_call_id=tool_call_id,
+                            tool_name=name,
+                            args=normalized_args,
+                            risk_level=decision.risk_level,
+                            summary=decision.summary,
+                            metadata={"source": "agent_tool_call"},
+                        )
+                        write_stream_event({"type": "approval_pending", "approval": approval})
+                        content = approval_pending_tool_message(approval)
+                        tool_message_status = "pending_approval"
+                    except Exception as exc:  # noqa: BLE001 - approval errors are visible to the model.
+                        content = f"Approval queue failed for {name}: {type(exc).__name__}: {exc}"
+                        tool_message_status = "error"
+                else:
+                    exec_context = dict(runtime_context)
+                    exec_context["approval_granted"] = True
+                    result = runtime.execute(
+                        name,
+                        normalized_args,
+                        tool_call_id=tool_call_id,
+                        context=exec_context,
+                        store=approval_store,
+                        session_id=session_id or None,
+                        run_id=run_id,
+                        command_scope=scope,
+                        persist=False,
+                    )
+                    content = result.content
+                    tool_message_status = result.status
+                    if result.artifact is not None:
+                        artifact_meta = {
+                            "artifact_id": result.artifact.artifact_id,
+                            "size_bytes": result.artifact.size_bytes,
+                            "spilled": True,
+                        }
 
-            write_stream_event(
-                {
-                    "type": "tool_end",
+                write_stream_event(
+                    {
+                        "type": "tool_end",
+                        "tool": name,
+                        "tool_call_id": tool_call_id,
+                        "status": tool_message_status,
+                        "content": content[:1200],
+                        **({"artifact": artifact_meta} if artifact_meta else {}),
+                    }
+                )
+                if tool_message_status == "ok":
+                    event = special_tool_event(name, content)
+                    if event:
+                        write_stream_event(event)
+
+                tool_messages.append(
+                    ToolMessage(
+                        content=content,
+                        name=name,
+                        tool_call_id=tool_call_id,
+                    )
+                )
+                completed_ids.add(tool_call_id)
+                step: dict[str, Any] = {
+                    "node": "action",
                     "tool": name,
                     "tool_call_id": tool_call_id,
                     "status": tool_message_status,
-                    "content": content[:1200],
-                    **({"artifact": artifact_meta} if artifact_meta else {}),
                 }
-            )
-            if tool_message_status == "ok":
-                event = special_tool_event(name, content)
-                if event:
-                    write_stream_event(event)
-            raise_if_stopped(state)
+                if artifact_meta is not None:
+                    step["artifact_id"] = artifact_meta["artifact_id"]
+                    step["spilled"] = True
+                steps.append(step)
+                if run_stop_requested(state):
+                    stopped = True
+                    break
+        except RunStopped:
+            stopped = True
 
-            tool_messages.append(
-                ToolMessage(
-                    content=content,
-                    name=name,
-                    tool_call_id=tool_call_id,
+        # Fill placeholder ToolMessages for any tool_calls that didn't execute,
+        # so the checkpoint never has orphaned tool_calls without responses.
+        for idx, call in enumerate(all_calls):
+            cid = call.get("id") or f"tool_call_{idx}"
+            if cid not in completed_ids:
+                tool_messages.append(
+                    ToolMessage(
+                        content="Tool execution was cancelled.",
+                        name=call.get("name", ""),
+                        tool_call_id=cid,
+                    )
                 )
-            )
-            step: dict[str, Any] = {
-                "node": "action",
-                "tool": name,
-                "tool_call_id": tool_call_id,
-                "status": tool_message_status,
-            }
-            if artifact_meta is not None:
-                step["artifact_id"] = artifact_meta["artifact_id"]
-                step["spilled"] = True
-            steps.append(step)
+                steps.append({
+                    "node": "action",
+                    "tool": call.get("name", ""),
+                    "tool_call_id": cid,
+                    "status": "cancelled",
+                })
+
+        if stopped:
+            raise RunStopped("Run was stopped by the user.")
 
         return {"messages": tool_messages, "intermediate_steps": steps}
 

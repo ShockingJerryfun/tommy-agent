@@ -38,6 +38,19 @@ class SessionStore(Protocol):
 
     def list_sessions(self, *, agent_id: str = "default") -> list[StoreRecord]: ...
 
+    def update_session_metadata(
+        self,
+        session_id: str,
+        *,
+        title: str | None = None,
+        pinned: bool | None = None,
+        archived: bool | None = None,
+    ) -> StoreRecord | None: ...
+
+    def set_share_token(self, session_id: str, token: str | None) -> None: ...
+
+    def get_session_by_share_token(self, token: str) -> StoreRecord | None: ...
+
     def delete_session(self, session_id: str) -> None: ...
 
 
@@ -50,6 +63,8 @@ class MessageStore(Protocol):
         content: str,
         metadata: dict[str, Any] | None = None,
     ) -> MessageRecord: ...
+
+    def get_message(self, message_id: str) -> MessageRecord | None: ...
 
     def update_message(
         self,
@@ -65,6 +80,8 @@ class MessageStore(Protocol):
         *,
         limit: int | None = None,
     ) -> list[MessageRecord]: ...
+
+    def delete_messages_after(self, session_id: str, position: int) -> int: ...
 
     def reset_session_content(
         self,
@@ -84,9 +101,16 @@ class RunStore(Protocol):
         metadata: dict[str, Any] | None = None,
         run_id: str | None = None,
         status: str = "queued",
+        idempotency_key: str | None = None,
     ) -> StoreRecord: ...
 
     def get_run(self, run_id: str) -> StoreRecord | None: ...
+
+    def find_run_by_idempotency_key(
+        self,
+        session_id: str,
+        idempotency_key: str,
+    ) -> StoreRecord | None: ...
 
     def list_runs(self, session_id: str, *, limit: int = 20) -> list[StoreRecord]: ...
 

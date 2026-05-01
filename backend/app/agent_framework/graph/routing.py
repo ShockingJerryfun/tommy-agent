@@ -33,6 +33,14 @@ def should_continue_after_action(state: AgentState) -> ActionRoute:
     return "end" if run_stop_requested(state) else "agent"
 
 
+def approval_is_pending(state: AgentState) -> bool:
+    steps = state.get("intermediate_steps") or []
+    return any(
+        isinstance(step, dict) and step.get("status") == "pending_approval"
+        for step in steps
+    )
+
+
 def route_after_agent(state: AgentState) -> AgentRoute:
     """v2 routing: tool calls go to action; everything else to the critic.
 
@@ -70,6 +78,8 @@ def route_after_critic(state: AgentState) -> CriticRoute:
     """
 
     if run_stop_requested(state):
+        return "reflector"
+    if approval_is_pending(state):
         return "reflector"
     budget = state.get("budget") or {}
     if budget.get("exhausted"):

@@ -4,8 +4,8 @@ The repo carries the lifecycle columns introduced in S2 (`embedding`,
 `embedding_model`, `fts`, `importance`, `last_used_at`, `use_count`,
 `decay_score`). The hybrid retriever in
 ``app/agent_framework/memory_platform`` uses ``search_fts`` and
-``search_vector`` directly; the legacy ``search_memories`` is preserved
-as an ILIKE fallback so callers that haven't migrated yet keep working.
+``search_vector`` directly; ``search_memories`` provides a simple ILIKE
+fallback for exact text lookup.
 """
 
 from __future__ import annotations
@@ -164,10 +164,7 @@ class MemoryRepo:
             ).fetchall()
             for row in rows:
                 new_score = float(row["decay_score"]) - decay_step
-                if (
-                    new_score < forget_threshold
-                    and float(row["importance"]) < importance_floor
-                ):
+                if new_score < forget_threshold and float(row["importance"]) < importance_floor:
                     conn.execute(
                         "UPDATE memories SET status = 'rejected', updated_at = ?, "
                         "decay_score = ? WHERE id = ?",

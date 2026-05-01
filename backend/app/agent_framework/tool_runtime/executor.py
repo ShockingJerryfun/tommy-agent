@@ -1,8 +1,7 @@
 """S4 ToolRuntime executor — validate → permission → run → persist → artifact.
 
 The runtime is intentionally a small composition layer on top of the
-existing :class:`~app.agent_framework.tools.ToolRegistry`. It does *not*
-own tool definitions; it owns the policy & lifecycle around invoking
+tool catalog. It does *not* own tool definitions; it owns the policy & lifecycle around invoking
 them so that:
 
 - Argument validation produces a structured ``ToolError`` instead of a
@@ -26,7 +25,7 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
-from ..tools import RUNTIME_TOOL_CONTEXT, ToolRegistry
+from .catalog import RUNTIME_TOOL_CONTEXT, ToolRegistry
 from .permissions import PermissionDecision, PermissionPolicy, default_permission_policy
 from .result import ArtifactRef, ToolError, ToolResult
 
@@ -71,9 +70,7 @@ class ToolRuntime:
         self.registry = registry
         self.policy = policy or default_permission_policy()
         self.spill_threshold_bytes = (
-            spill_threshold_bytes
-            if spill_threshold_bytes is not None
-            else ARTIFACT_SPILL_THRESHOLD
+            spill_threshold_bytes if spill_threshold_bytes is not None else ARTIFACT_SPILL_THRESHOLD
         )
 
     # ------------------------------------------------------------------
@@ -194,8 +191,10 @@ class ToolRuntime:
                     error=err,
                 )
             else:
-                content = raw if isinstance(raw, str) else json.dumps(
-                    raw, ensure_ascii=False, default=str
+                content = (
+                    raw
+                    if isinstance(raw, str)
+                    else json.dumps(raw, ensure_ascii=False, default=str)
                 )
                 size = len(content.encode("utf-8", errors="replace"))
                 result = ToolResult(

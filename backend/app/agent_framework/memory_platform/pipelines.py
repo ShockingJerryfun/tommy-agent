@@ -77,11 +77,7 @@ def extract_candidates(messages: list[Any]) -> list[str]:
     candidates: list[str] = []
     seen: set[str] = set()
     for message in messages:
-        role = (
-            getattr(message, "role", None)
-            or getattr(message, "type", None)
-            or ""
-        )
+        role = getattr(message, "role", None) or getattr(message, "type", None) or ""
         if str(role).lower() not in {"user", "human"}:
             continue
         content = getattr(message, "content", None)
@@ -151,8 +147,7 @@ def reflect_messages(
                 inputs_count=len(messages),
                 outputs_count=len(proposals),
                 summary=(
-                    f"Proposed {len(proposals)} memory item(s) from "
-                    f"{len(messages)} message(s)."
+                    f"Proposed {len(proposals)} memory item(s) from {len(messages)} message(s)."
                 ),
                 metadata={"snippets": candidates},
             )

@@ -45,14 +45,12 @@ The default graph now lives under `backend/app/agent_framework/graph/`:
 - `graph/routing.py`: owns graph routing, stop checks, and tool-call extraction.
 - `graph/exceptions.py`: owns graph-level exceptions such as `RunStopped`.
 
-`backend/app/agent_framework/agent.py` is a compatibility shim. Existing imports can
-continue to use `build_agent_graph` and `RunStopped` from `agent.py`, while new graph
-work should target the `graph/` package directly.
+`backend/app/agent_framework/agent.py` is the graph construction entry point for the
+application package. Detailed graph work lives in the `graph/` package.
 
 The run/event display mapping now lives under `backend/app/agent_framework/runtime/`.
-`runs.py` still owns the current `RunManager`, but pure runtime helpers should move into
-that package before the run service is split. `runtime/types.py` now owns the run input
-DTO (`RunCreatePayload`), and `runtime/run_steps.py` owns event-to-UI-step mapping.
+`runtime/manager.py` owns `RunManager`, `runtime/types.py` owns the run input DTO
+(`RunCreatePayload`), and `runtime/run_steps.py` owns event-to-UI-step mapping.
 This keeps API contracts and display mapping outside the long-running run executor.
 
 `/health` is an end-to-end runtime surface. It reports app root, data/index paths,

@@ -1,11 +1,4 @@
-"""YAML-driven permission policy for the S4 tool runtime.
-
-The legacy ``approvals.evaluate_tool_call`` / ``command_is_dangerous``
-helpers now delegate here so there is exactly one source of truth.
-Callers can use either the convenience top-level helpers
-(``default_permission_policy``, ``load_permission_policy``) or instantiate
-a :class:`PermissionPolicy` directly with an inline dict (used in tests).
-"""
+"""YAML-driven permission policy for the tool runtime."""
 
 from __future__ import annotations
 
@@ -79,17 +72,11 @@ class PermissionPolicy:
         if name == "run_shell_command":
             command = str(args.get("command") or "")
             if self.command_is_dangerous(command):
-                if command_scope != "unrestricted":
-                    return PermissionDecision(
-                        needs_approval=True,
-                        risk_level=self._risk_for(spec, args, dangerous=True),
-                        summary=self._format_summary(name, spec, args),
-                        denied=True,
-                        deny_reason=(
-                            "Command rejected by safety policy "
-                            "(matches denied_command_patterns)."
-                        ),
-                    )
+                return PermissionDecision(
+                    needs_approval=True,
+                    risk_level=self._risk_for(spec, args, dangerous=True),
+                    summary=self._format_summary(name, spec, args),
+                )
 
         if command_scope == "unrestricted":
             return PermissionDecision(needs_approval=False)

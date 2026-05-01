@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
-from ..checkpointing import build_thread_config
+from .checkpointing import build_thread_config
 
 
 class GraphRuntime:
@@ -33,7 +33,7 @@ class GraphRuntime:
             return await self._graph_factory()
 
         from ..agent import build_agent_graph
-        from ..checkpointing import create_async_checkpointer
+        from .checkpointing import create_async_checkpointer
 
         return build_agent_graph(
             checkpointer=await create_async_checkpointer(),

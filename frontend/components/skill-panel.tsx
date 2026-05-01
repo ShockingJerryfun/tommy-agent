@@ -2,6 +2,7 @@
 
 import { Check, Sparkles, X } from "lucide-react";
 
+import { useI18n } from "../lib/i18n";
 import { InspectorPanel } from "./inspector-panel";
 
 export type SkillSummaryView = {
@@ -36,6 +37,8 @@ export function SkillPanel({
   onApplyProposal,
   onRejectProposal,
 }: SkillPanelProps) {
+  const { t } = useI18n();
+
   return (
     <InspectorPanel
       title="Skills"
@@ -45,18 +48,18 @@ export function SkillPanel({
       <div className="space-y-3">
         <div>
           <p className="mb-2 px-1 text-[11px] font-medium text-slate-400">
-            已安装 {skills.length}
+            {t("skills.installed", { count: skills.length })}
           </p>
           {skills.length === 0 ? (
-            <p className="rounded-xl bg-slate-950/[0.025] px-3 py-2 text-[12px] text-slate-400 dark:bg-white/[0.035]">
-              暂无已安装 skill
+            <p className="ios-glass-field rounded-xl px-3 py-2 text-[12px] text-slate-400">
+              {t("skills.emptyInstalled")}
             </p>
           ) : (
             <div className="space-y-1.5">
               {skills.slice(0, 4).map((skill) => (
                 <div
                   key={skill.path}
-                  className="rounded-xl bg-slate-950/[0.03] px-3 py-2 text-[12px] dark:bg-white/[0.04]"
+                  className="admin-card rounded-xl px-3 py-2 text-[12px]"
                 >
                   <p className="font-medium text-slate-700 dark:text-slate-200">
                     {skill.name}
@@ -72,18 +75,18 @@ export function SkillPanel({
 
         <div>
           <p className="mb-2 px-1 text-[11px] font-medium text-slate-400">
-            待确认 {proposals.length}
+            {t("skills.pending", { count: proposals.length })}
           </p>
           {proposals.length === 0 ? (
-            <p className="rounded-xl bg-slate-950/[0.025] px-3 py-2 text-[12px] text-slate-400 dark:bg-white/[0.035]">
-              agent 还没有提出 skill 更新
+            <p className="ios-glass-field rounded-xl px-3 py-2 text-[12px] text-slate-400">
+              {t("skills.emptyPending")}
             </p>
           ) : (
             <div className="space-y-2">
               {proposals.slice(0, 4).map((proposal) => (
                 <div
                   key={proposal.id}
-                  className="rounded-2xl border border-slate-950/[0.06] bg-slate-950/[0.025] p-3 text-[12px] dark:border-white/[0.07] dark:bg-white/[0.035]"
+                  className="admin-card rounded-2xl p-3 text-[12px]"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
@@ -95,7 +98,7 @@ export function SkillPanel({
                       </p>
                     </div>
                     {proposal.metadata?.allow_auto_apply === true && (
-                      <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                      <span className="admin-badge admin-badge-success text-[10px]">
                         auto
                       </span>
                     )}
@@ -107,18 +110,18 @@ export function SkillPanel({
                     <button
                       type="button"
                       onClick={() => onApplyProposal(proposal.id)}
-                      className="inline-flex items-center gap-1 rounded-full bg-slate-900 px-2.5 py-1 text-[10px] font-semibold text-white transition hover:bg-slate-700 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white"
+                      className="premium-action soft-focus-ring inline-flex items-center gap-1 px-2.5 py-1 text-[10px] font-semibold"
                     >
                       <Check className="h-3 w-3" />
-                      应用
+                      {t("skills.apply")}
                     </button>
                     <button
                       type="button"
                       onClick={() => onRejectProposal(proposal.id)}
-                      className="inline-flex items-center gap-1 rounded-full bg-slate-950/[0.06] px-2.5 py-1 text-[10px] font-semibold text-slate-500 transition hover:bg-slate-950/[0.1] dark:bg-white/[0.07] dark:text-slate-400"
+                      className="admin-secondary-action soft-focus-ring inline-flex items-center gap-1 px-2.5 py-1 text-[10px] font-semibold"
                     >
                       <X className="h-3 w-3" />
-                      拒绝
+                      {t("skills.reject")}
                     </button>
                   </div>
                 </div>

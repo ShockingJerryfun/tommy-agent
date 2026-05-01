@@ -150,11 +150,7 @@ def make_embedder() -> Embedder:
     """Factory honoring the env-var contract documented at the top."""
 
     provider = (os.getenv("TOMMY_EMBEDDING_PROVIDER") or "").strip().lower()
-    api_key = (
-        os.getenv("TOMMY_EMBEDDING_API_KEY")
-        or os.getenv("OPENAI_API_KEY")
-        or ""
-    ).strip()
+    api_key = (os.getenv("TOMMY_EMBEDDING_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip()
     base_url = (os.getenv("TOMMY_EMBEDDING_BASE_URL") or "").strip()
     model = (os.getenv("TOMMY_EMBEDDING_MODEL") or "text-embedding-3-small").strip()
 
@@ -169,9 +165,7 @@ def make_embedder() -> Embedder:
         if not api_key:
             return NullEmbedder()
         try:
-            return OpenAIEmbedder(
-                model=model, api_key=api_key, base_url=base_url or None
-            )
+            return OpenAIEmbedder(model=model, api_key=api_key, base_url=base_url or None)
         except RuntimeError:
             return NullEmbedder()
     return NullEmbedder()

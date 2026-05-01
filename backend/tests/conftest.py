@@ -25,9 +25,7 @@ def _test_database_name(test_dsn: str) -> str:
     params = conninfo_to_dict(test_dsn)
     dbname = str(params.get("dbname") or "")
     if not (dbname.endswith("_test") or dbname.startswith("test_")):
-        raise RuntimeError(
-            "TOMMY_TEST_POSTGRES_DSN must point at a *_test or test_* database."
-        )
+        raise RuntimeError("TOMMY_TEST_POSTGRES_DSN must point at a *_test or test_* database.")
     return dbname
 
 

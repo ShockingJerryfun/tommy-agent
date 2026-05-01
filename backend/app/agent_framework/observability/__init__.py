@@ -28,7 +28,9 @@ from .metrics import RunMetricsRecorder
 from .replay import (
     ReplayReport,
     ReplayRunner,
+    RunEventsReplayReport,
     default_replay_runner,
+    replay_run_events,
     replay_session,
 )
 from .tracer import get_tracer, span
@@ -38,10 +40,12 @@ __all__ = [
     "MaintenanceScheduler",
     "ReplayReport",
     "ReplayRunner",
+    "RunEventsReplayReport",
     "RunMetricsRecorder",
     "default_maintenance_jobs",
     "default_replay_runner",
     "get_tracer",
+    "replay_run_events",
     "replay_session",
     "span",
 ]

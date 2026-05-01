@@ -16,20 +16,21 @@ const config: Config = {
         ],
       },
       borderRadius: {
-        panel: "1.5rem",
-        control: "0.875rem",
-        bubble: "1.25rem",
+        panel: "1.75rem",
+        control: "1rem",
+        bubble: "1.4rem",
       },
       boxShadow: {
-        soft: "0 20px 60px -16px rgb(15 23 42 / 0.16), 0 1px 3px -1px rgb(15 23 42 / 0.05)",
-        "soft-sm": "0 8px 32px -8px rgb(15 23 42 / 0.10), 0 1px 2px -1px rgb(15 23 42 / 0.04)",
+        soft: "0 12px 40px -12px rgb(0 0 0 / 0.08), 0 1px 3px -1px rgb(0 0 0 / 0.04)",
+        "soft-sm":
+          "0 8px 24px -8px rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.03)",
         composer:
-          "0 14px 42px -20px rgb(15 23 42 / 0.24), 0 5px 18px -12px rgb(15 23 42 / 0.16)",
-        "inner-top": "inset 0 1px 0 rgb(255 255 255 / 0.7)",
+          "0 20px 48px -12px rgb(0 0 0 / 0.12), 0 6px 20px -8px rgb(0 0 0 / 0.08)",
       },
       animation: {
         "cursor-blink": "cursor-blink 0.9s ease-in-out infinite",
-        "fade-slide-up": "fade-slide-up 0.28s cubic-bezier(0.22, 1, 0.36, 1) both",
+        "fade-slide-up":
+          "fade-slide-up 0.28s cubic-bezier(0.22, 1, 0.36, 1) both",
         "scale-in": "scale-in 0.2s cubic-bezier(0.22, 1, 0.36, 1) both",
         "spin-slow": "spin 1.4s linear infinite",
       },

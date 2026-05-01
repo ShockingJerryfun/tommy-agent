@@ -11,14 +11,15 @@ Default jobs (see :func:`default_maintenance_jobs`):
 - ``memory.apply_decay`` — soft-decays unused memories every 6 hours.
 - ``approvals.cleanup_stale`` — rejects pendings older than the TTL
   every 30 minutes (delegates to the same hook bundle).
-- ``skills.forge_nightly`` — runs the Skill Forge mining + shadow
-  validation pipeline every 24 hours.
+- ``skills.forge_nightly`` — optional; set ``TOMMY_SKILL_FORGE_ENABLED=1``
+  to run Skill Forge mining + shadow validation every 24 hours.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
@@ -27,6 +28,10 @@ logger = logging.getLogger("tommy.observability.maintenance")
 
 
 JobBody = Callable[[], Awaitable[None] | None]
+
+
+def _env_enabled(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 @dataclass
@@ -79,9 +84,7 @@ class MaintenanceScheduler:
             while not self._stop_event.is_set():
                 await self._invoke(job)
                 try:
-                    await asyncio.wait_for(
-                        self._stop_event.wait(), timeout=job.interval_seconds
-                    )
+                    await asyncio.wait_for(self._stop_event.wait(), timeout=job.interval_seconds)
                 except TimeoutError:
                     continue
         except asyncio.CancelledError:
@@ -160,7 +163,7 @@ def default_maintenance_jobs(store: Any) -> list[MaintenanceJob]:
             forge = SkillForge(store=store)
             run_nightly(agent_id=agent_id, forge=forge)
 
-    return [
+    jobs = [
         MaintenanceJob(
             name="memory.apply_decay",
             interval_seconds=6 * 60 * 60,
@@ -171,9 +174,13 @@ def default_maintenance_jobs(store: Any) -> list[MaintenanceJob]:
             interval_seconds=30 * 60,
             body=approvals_cleanup,
         ),
-        MaintenanceJob(
-            name="skills.forge_nightly",
-            interval_seconds=24 * 60 * 60,
-            body=skills_forge_nightly,
-        ),
     ]
+    if _env_enabled("TOMMY_SKILL_FORGE_ENABLED"):
+        jobs.append(
+            MaintenanceJob(
+                name="skills.forge_nightly",
+                interval_seconds=24 * 60 * 60,
+                body=skills_forge_nightly,
+            )
+        )
+    return jobs

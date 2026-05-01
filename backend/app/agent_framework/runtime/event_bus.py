@@ -5,8 +5,9 @@ This module is the blueprint-canonical name for the existing
 
 * every non-token event is appended to ``run_events`` (durable replay log)
   and fanned out to live SSE subscribers in one atomic operation;
-* token events stay transient (bounded ring buffer per run) and never
-  hit the database;
+* token/reasoning events are still streamed live immediately, and are also
+  flushed to durable ``message_delta`` / ``reasoning_delta`` events in
+  bounded batches;
 * late subscribers replay history from ``after_sequence`` before joining
   the live fan-out, with sequence-based de-duplication.
 

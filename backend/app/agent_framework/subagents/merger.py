@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ..store import PostgresAgentStore
+from ..storage import PostgresAgentStore
 from .delegate import SubagentDelegator, SubagentResult
 
 

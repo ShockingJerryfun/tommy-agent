@@ -127,10 +127,10 @@ Why this matters:
 
 Near-term work:
 
-- Create `context_builder.py` with `ContextBuildRequest`, `ContextSection`, and rendered
-  result objects.
-- Keep `messages_with_system_prompt` as a compatibility facade while delegating to the
-  builder.
+- Maintain `prompt_context/builder.py` with `ContextBuildRequest`, `ContextSection`, and
+  rendered result objects.
+- Keep prompt rendering functions in `prompt_context/rendering.py` as the module port for
+  callers.
 - Implement deterministic section order: runtime, session summary, curated identity,
   user profile, curated memory, retrieved memory, context pact, skills, extracted context,
   metadata, workspace, tool-use policy, memory boundary.

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ..settings import RuntimeSettings, load_settings
-from ..store import PostgresAgentStore
+from .store import PostgresAgentStore
 
 _AGENT_STORE: PostgresAgentStore | None = None
 

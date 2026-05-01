@@ -19,14 +19,18 @@ Public surface:
 from __future__ import annotations
 
 from .activator import SkillActivator, SkillCandidate, get_default_skill_activator
+from .catalog import SkillCatalog, SkillProposal, SkillSummary
 from .forge import SkillForge, SkillForgeOutcome, ToolChain, get_default_skill_forge
 from .pipeline import run_nightly
 
 __all__ = [
+    "SkillCatalog",
     "SkillActivator",
     "SkillCandidate",
     "SkillForge",
     "SkillForgeOutcome",
+    "SkillProposal",
+    "SkillSummary",
     "ToolChain",
     "get_default_skill_activator",
     "get_default_skill_forge",

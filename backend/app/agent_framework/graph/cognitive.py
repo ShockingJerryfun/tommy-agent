@@ -71,9 +71,7 @@ def create_pre_run_node() -> Callable[[AgentState], dict[str, Any]]:
             budget = Budget.from_dict(existing_budget)
         else:
             metadata = state.get("metadata") or {}
-            budget = Budget.from_metadata(
-                metadata if isinstance(metadata, dict) else {}
-            ).started()
+            budget = Budget.from_metadata(metadata if isinstance(metadata, dict) else {}).started()
 
         return {
             "budget": budget.as_dict(),

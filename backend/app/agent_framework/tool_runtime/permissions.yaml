@@ -1,15 +1,15 @@
-# Tool permission policy (S4 — locked blueprint §13).
+# Tool permission policy.
 #
 # This file is the source of truth for *whether* a tool call needs an
 # approval queue entry, *what* risk level it carries, and *which* shell
 # patterns are denied outright. The Python loader in
-# ``tool_runtime/permissions.py`` reads this file once at import time and
-# the runtime/legacy ``approvals.py`` both delegate to the same decision.
+# ``tool_runtime/permissions.py`` reads this file once at import time.
 #
 # Risk levels are advisory: they propagate into approval_requests rows so
 # the UI can render them, but the actual gating is the boolean
 # ``needs_approval``. ``command_scope: unrestricted`` (set by the
-# frontend) bypasses approval gating wholesale.
+# frontend) bypasses routine approval gating, while privileged or dangerous
+# shell commands still require approval.
 #
 # To add a new tool:
 #   1. Append it under ``tools:`` with ``approval`` set to one of
@@ -25,9 +25,9 @@ default:
   approval: never
   risk: low
 
-# Shell command patterns that are denied even with approval (defence in
-# depth). These are case-insensitive Python regexes evaluated against the
-# normalised command string.
+# Shell command patterns that require approval even in unrestricted mode.
+# These are case-insensitive Python regexes evaluated against the normalised
+# command string.
 denied_command_patterns:
   - '\brm\s+-[^;&|]*r[^;&|]*f\b'
   - '\bsudo\b'
