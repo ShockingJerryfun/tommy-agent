@@ -114,13 +114,19 @@ test("share page uses the same admin card system", async ({ page }, testInfo) =>
   }
 });
 
-test("mobile navigation uses large floating touch targets", async ({ page }, testInfo) => {
+test("mobile navigation aligns with desktop controls without oversized buttons", async ({
+  page,
+}, testInfo) => {
   test.skip(testInfo.project.name !== "mobile-iphone-12", "mobile only");
 
   await page.goto("/");
 
   const menuButton = page.getByRole("button", { name: "打开对话列表" });
   await expect(menuButton).toBeVisible();
+  await expect(page.getByRole("button", { name: "设置", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "打开状态和设置" })).toBeVisible();
+  await expect(page.getByRole("img", { name: "Tommy" }).first()).toBeVisible();
+
   const style = await menuButton.evaluate((element) => {
     const rect = element.getBoundingClientRect();
     const computed = getComputedStyle(element);
@@ -134,12 +140,17 @@ test("mobile navigation uses large floating touch targets", async ({ page }, tes
     };
   });
 
-  expect(style.width).toBeGreaterThanOrEqual(56);
-  expect(style.height).toBeGreaterThanOrEqual(56);
+  expect(style.width).toBeLessThanOrEqual(44);
+  expect(style.height).toBeLessThanOrEqual(44);
+  expect(style.width).toBeGreaterThanOrEqual(40);
+  expect(style.height).toBeGreaterThanOrEqual(40);
   expect(style.backgroundColor).toBe("rgba(255, 255, 255, 0.82)");
   expect(style.backdropFilter).toContain("blur(8px)");
-  expect(style.borderRadius).toBe("28px");
+  expect(Number.parseInt(style.borderRadius, 10)).toBeGreaterThanOrEqual(20);
   expect(style.boxShadow).toContain("rgba(15, 23, 42, 0.11)");
+
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await expect(page.getByRole("link", { name: "系统设计图" })).toBeVisible();
 });
 
 test("mobile drawer and inspector sheet use white card surfaces", async ({

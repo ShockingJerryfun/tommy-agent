@@ -20,6 +20,7 @@ from .repos import (
     RunRepo,
     SearchRepo,
     SessionRepo,
+    SkillActivationTraceRepo,
     SkillCatalogRepo,
     SkillForgeRunRepo,
     SkillRepo,
@@ -63,6 +64,7 @@ class PostgresAgentStore(
         self.memories = MemoryRepo(self._connector)
         self.skills = SkillRepo(self._connector)
         self.skill_catalog = SkillCatalogRepo(self._connector)
+        self.skill_activation_traces = SkillActivationTraceRepo(self._connector)
         self.skill_forge_runs = SkillForgeRunRepo(self._connector)
         self.subagent_runs = SubagentRunRepo(self._connector)
         self.run_metrics = RunMetricsRepo(self._connector)

@@ -39,6 +39,7 @@ from ..api_handlers.runs import (
     cancel_run_impl,
     chat_stream_impl,
     create_run_impl,
+    get_activation_trace_impl,
     get_run_impl,
     get_run_replay_impl,
     stop_session_impl,
@@ -272,6 +273,11 @@ async def get_run(run_id: str) -> dict[str, Any]:
 @app.get("/api/runs/{run_id}/replay")
 async def get_run_replay(run_id: str) -> dict[str, Any]:
     return get_run_replay_impl(_agent_store, run_id)
+
+
+@app.get("/api/runs/{run_id}/activation-trace")
+async def get_activation_trace(run_id: str) -> dict[str, Any]:
+    return get_activation_trace_impl(_agent_store, run_id)
 
 
 @app.get("/api/runs/{run_id}/events")

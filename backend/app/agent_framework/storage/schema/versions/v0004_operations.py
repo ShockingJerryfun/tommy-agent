@@ -138,4 +138,28 @@ CREATE INDEX IF NOT EXISTS idx_memory_injections_run_rank
 
 CREATE INDEX IF NOT EXISTS idx_memory_injections_memory
     ON memory_injections(memory_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS skill_activation_traces (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    snapshot_id TEXT NOT NULL REFERENCES prompt_snapshots(id) ON DELETE CASCADE,
+    skill_id TEXT NOT NULL,
+    skill_name TEXT NOT NULL DEFAULT '',
+    relative_path TEXT NOT NULL DEFAULT '',
+    required_tools_json TEXT NOT NULL DEFAULT '[]',
+    matched_tools_json TEXT NOT NULL DEFAULT '[]',
+    credited BOOLEAN NOT NULL DEFAULT FALSE,
+    terminal_status TEXT NOT NULL DEFAULT '',
+    terminal_reason TEXT NOT NULL DEFAULT '',
+    selected_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    UNIQUE(run_id, snapshot_id, skill_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_skill_activation_traces_run
+    ON skill_activation_traces(run_id, created_at ASC);
+
+CREATE INDEX IF NOT EXISTS idx_skill_activation_traces_skill
+    ON skill_activation_traces(skill_id, created_at DESC);
 """

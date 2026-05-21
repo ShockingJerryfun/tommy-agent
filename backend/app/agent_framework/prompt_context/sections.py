@@ -20,7 +20,8 @@ RENDER_ORDER: dict[str, int] = {
     "working_directory": 78,
     "curated_memory": 80,
     "retrieved_memory": 85,
-    "skills": 90,
+    "skill_index": 89,
+    "selected_skills": 90,
     "extracted_context": 95,
     "plan": 32,
     "critic_feedback": 36,
@@ -37,7 +38,8 @@ def build_section_drafts(
     metadata: dict[str, Any],
     working_directory: str,
     context_pact: dict[str, Any],
-    skills: list[Any],
+    available_skill_index: str,
+    selected_skills: str,
     recalled_memories: list[dict[str, Any]],
     extracted_context: Any,
     current_time: str,
@@ -50,10 +52,6 @@ def build_section_drafts(
             f"Current UTC time: {current_time}",
             f"Session ID: {session_id or 'unknown'}",
         ]
-    )
-    skills_body = (
-        "\n".join(f"- {skill.name}: {skill.description or skill.path}" for skill in skills)
-        or "No installed skills."
     )
     tool_use_body = "\n\n".join(
         [
@@ -174,7 +172,18 @@ def build_section_drafts(
             priority=75,
         ),
         make_section(
-            "skills", "Installed Skills", skills_body, source="skills.catalog", priority=65
+            "skill_index",
+            "Available Skill Index",
+            available_skill_index,
+            source="postgres.skills.active_index",
+            priority=58,
+        ),
+        make_section(
+            "selected_skills",
+            "Selected Skills",
+            selected_skills,
+            source="skill_runtime.selected",
+            priority=74,
         ),
         make_section(
             "extracted_context",

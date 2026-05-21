@@ -78,6 +78,7 @@ class RenderedContext:
     content: str
     sections: list[Section]
     injected_memories: list[dict[str, Any]]
+    skill_activations: dict[str, Any]
     budget: BudgetAccounting
     content_sha256: str
 
@@ -88,6 +89,7 @@ class RenderedContext:
             "content_sha256": self.content_sha256,
             "sections": [section.snapshot() for section in self.sections],
             "injected_memories": self.injected_memories,
+            "skill_activations": self.skill_activations,
             "budget": self.budget.as_dict(),
         }
 

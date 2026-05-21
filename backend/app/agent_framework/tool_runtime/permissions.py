@@ -69,6 +69,17 @@ class PermissionPolicy:
         spec = self._tools.get(name, self._default)
         approval = str(spec.get("approval") or self._default.get("approval") or "never")
 
+        if approval == "deny":
+            return PermissionDecision(
+                needs_approval=False,
+                risk_level=self._risk_for(spec, args),
+                summary=self._format_summary(name, spec, args),
+                denied=True,
+                deny_reason=str(
+                    spec.get("deny_reason") or "Tool call denied by permission policy."
+                ),
+            )
+
         if name == "run_shell_command":
             command = str(args.get("command") or "")
             if self.command_is_dangerous(command):
@@ -78,7 +89,7 @@ class PermissionPolicy:
                     summary=self._format_summary(name, spec, args),
                 )
 
-        if command_scope == "unrestricted":
+        if command_scope == "unrestricted" and bool(spec.get("unrestricted_bypass", True)):
             return PermissionDecision(needs_approval=False)
 
         if approval == "never":

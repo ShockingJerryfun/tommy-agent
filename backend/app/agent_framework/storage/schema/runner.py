@@ -6,6 +6,7 @@ from .registry import SCHEMA_DDL
 
 _TRUNCATE_SQL = """
 TRUNCATE TABLE
+    skill_activation_traces,
     prompts,
     run_metrics,
     subagent_runs,

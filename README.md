@@ -46,6 +46,7 @@ Runtime data is stored in PostgreSQL. Local secrets live in `backend/.env`; gene
 
 - Python 3.11+
 - PostgreSQL 17+
+- Go 1.25+ for the local shell runner
 - Node.js 20+
 - npm
 
@@ -77,11 +78,25 @@ DEEPSEEK_API_KEY=your_key_here
 
 ### 3. Run the backend
 
+Build and start the Go shell runner sidecar in a separate terminal for the fastest
+local command execution path:
+
+```bash
+cd runner
+go build -o bin/tommy-runner ./cmd/tommy-runner
+./bin/tommy-runner serve --addr 127.0.0.1:8765
+```
+
 ```bash
 cd backend
 uv sync
-uv run uvicorn app.agent_framework.server.app:app --reload --host 0.0.0.0 --port 8000
+TOMMY_GO_RUNNER_URL=http://127.0.0.1:8765 \
+  uv run uvicorn app.agent_framework.server.app:app --reload --host 0.0.0.0 --port 8000
 ```
+
+If `TOMMY_GO_RUNNER_URL` is not set, the backend still executes shell tools through the
+Go runner CLI (`runner/bin/tommy-runner` when present, otherwise `go run`). Python no
+longer executes model-requested shell commands directly.
 
 ### 4. Run the frontend
 
@@ -182,6 +197,7 @@ docs/
 
 - Python 3.11+
 - PostgreSQL 17+
+- Go 1.25+，用于本地 shell runner
 - Node.js 20+
 - npm
 
@@ -213,11 +229,24 @@ DEEPSEEK_API_KEY=your_key_here
 
 ### 3. 启动后端
 
+为了获得最快的本地命令执行路径，先在另一个终端构建并启动 Go shell runner：
+
+```bash
+cd runner
+go build -o bin/tommy-runner ./cmd/tommy-runner
+./bin/tommy-runner serve --addr 127.0.0.1:8765
+```
+
 ```bash
 cd backend
 uv sync
-uv run uvicorn app.agent_framework.server.app:app --reload --host 0.0.0.0 --port 8000
+TOMMY_GO_RUNNER_URL=http://127.0.0.1:8765 \
+  uv run uvicorn app.agent_framework.server.app:app --reload --host 0.0.0.0 --port 8000
 ```
+
+如果没有设置 `TOMMY_GO_RUNNER_URL`，后端仍会通过 Go runner CLI 执行 shell 工具
+（优先使用 `runner/bin/tommy-runner`，否则使用 `go run`）。Python 不再直接执行模型请求的
+shell 命令。
 
 ### 4. 启动前端
 

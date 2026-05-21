@@ -13,7 +13,7 @@
 #
 # To add a new tool:
 #   1. Append it under ``tools:`` with ``approval`` set to one of
-#      ``never`` / ``always`` / ``conditional``.
+#      ``never`` / ``always`` / ``conditional`` / ``deny``.
 #   2. If ``conditional``, add a ``conditions:`` block with simple key
 #      checks. Currently supported predicates are listed below the
 #      example tools — extend ``permissions.py`` if you need more.
@@ -93,3 +93,119 @@ tools:
     approval: always
     risk: medium
     summary_template: "委派给 {target_agent}: {task_preview}"
+
+  create_xhs_content_job:
+    approval: never
+    risk: low
+
+  build_chatgpt_xhs_prompt:
+    approval: never
+    risk: low
+
+  validate_xhs_note_json:
+    approval: never
+    risk: low
+
+  check_xhs_content_risk:
+    approval: never
+    risk: low
+
+  chatgpt_open:
+    approval: always
+    unrestricted_bypass: false
+    risk: high
+    summary_template: "打开 ChatGPT 网页并检测登录状态"
+
+  chatgpt_new_chat:
+    approval: always
+    unrestricted_bypass: false
+    risk: high
+    summary_template: "打开新的 ChatGPT 网页会话"
+
+  chatgpt_send_message:
+    approval: always
+    unrestricted_bypass: false
+    risk: high
+    summary_template: "向 ChatGPT 网页发送提示词"
+
+  chatgpt_wait_until_done:
+    approval: never
+    risk: low
+
+  chatgpt_extract_latest_text:
+    approval: never
+    risk: low
+
+  chatgpt_download_latest_images:
+    approval: always
+    unrestricted_bypass: false
+    risk: high
+    summary_template: "下载 ChatGPT 网页生成的图片"
+
+  chatgpt_save_artifacts:
+    approval: never
+    risk: low
+
+  xhs_open_creator:
+    approval: always
+    unrestricted_bypass: false
+    risk: high
+    summary_template: "打开小红书创作中心"
+
+  xhs_start_note:
+    approval: always
+    unrestricted_bypass: false
+    risk: high
+    summary_template: "切换小红书图文笔记编辑器"
+
+  xhs_upload_images:
+    approval: always
+    unrestricted_bypass: false
+    risk: high
+    summary_template: "向小红书创作中心上传图片"
+
+  xhs_fill_title:
+    approval: always
+    unrestricted_bypass: false
+    risk: high
+    summary_template: "预填小红书笔记标题"
+
+  xhs_fill_body:
+    approval: always
+    unrestricted_bypass: false
+    risk: high
+    summary_template: "预填小红书笔记正文"
+
+  xhs_fill_hashtags:
+    approval: always
+    unrestricted_bypass: false
+    risk: high
+    summary_template: "预填小红书笔记话题"
+
+  xhs_take_preview_screenshot:
+    approval: never
+    risk: low
+
+  xhs_stop_before_publish:
+    approval: never
+    risk: low
+
+  xhs_click_publish:
+    approval: deny
+    risk: high
+    deny_reason: "Tommy 不允许自动点击小红书发布按钮。"
+
+  xhs_auto_comment:
+    approval: deny
+    risk: high
+    deny_reason: "Tommy 不允许自动评论。"
+
+  xhs_auto_dm:
+    approval: deny
+    risk: high
+    deny_reason: "Tommy 不允许自动私信。"
+
+  xhs_bulk_interact:
+    approval: deny
+    risk: high
+    deny_reason: "Tommy 不允许批量互动。"

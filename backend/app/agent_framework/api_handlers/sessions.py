@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import HTTPException
 from fastapi.responses import Response
 
+from ..paths import DATA_ROOT
 from ..prompt_context import normalize_context_pact
 from ..server import (
     CreateSessionRequest,
@@ -14,7 +15,7 @@ from ..server import (
     SessionDetail,
     SessionPatchRequest,
 )
-from ..skills_forge.catalog import SkillCatalog
+from ..skill_runtime import list_indexed_skill_summaries
 from .common import (
     attach_run_summaries,
     export_slug,
@@ -112,15 +113,11 @@ async def get_session_impl(store, run_manager, session_id: str) -> SessionDetail
         memory_proposals=store.list_memories(agent_id=agent_id, status="proposed"),
         compaction_runs=store.list_compaction_runs(session_id),
         pending_approvals=store.list_approval_requests(session_id=session_id, status="pending"),
-        skills=[
-            {
-                "name": skill.name,
-                "path": skill.path,
-                "description": skill.description,
-                "updated_at": skill.updated_at,
-            }
-            for skill in SkillCatalog(agent_id=agent_id, store=store).list_skills()
-        ],
+        skills=list_indexed_skill_summaries(
+            store=store,
+            agent_id=agent_id,
+            skills_root=DATA_ROOT / agent_id / "skills",
+        ),
     )
 
 

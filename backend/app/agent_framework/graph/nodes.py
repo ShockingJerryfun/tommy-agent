@@ -64,10 +64,15 @@ def agent_response_update(response: Any) -> dict[str, Any]:
     }
 
 
-def create_agent_node(model: Runnable) -> Callable[[AgentState], dict[str, Any]]:
+def create_agent_node(
+    model: Runnable,
+    tool_registry: ToolRegistry | None = None,
+) -> Callable[[AgentState], dict[str, Any]]:
     def agent_node(state: AgentState) -> dict[str, Any]:
         raise_if_stopped(state)
-        messages, rendered_context = messages_with_context(state)
+        messages, rendered_context = messages_with_context(
+            _state_with_tool_inventory(state, tool_registry)
+        )
         write_stream_event({"type": "context", **rendered_context.snapshot()})
         runtime_model = bind_runtime_model_options(model, state.get("metadata"))
         response = runtime_model.invoke(messages)
@@ -77,10 +82,12 @@ def create_agent_node(model: Runnable) -> Callable[[AgentState], dict[str, Any]]
     return agent_node
 
 
-def create_agent_node_async(model: Runnable):
+def create_agent_node_async(model: Runnable, tool_registry: ToolRegistry | None = None):
     async def agent_node_async(state: AgentState) -> dict[str, Any]:
         raise_if_stopped(state)
-        messages, rendered_context = messages_with_context(state)
+        messages, rendered_context = messages_with_context(
+            _state_with_tool_inventory(state, tool_registry)
+        )
         write_stream_event({"type": "context", **rendered_context.snapshot()})
         runtime_model = bind_runtime_model_options(model, state.get("metadata"))
         response = await runtime_model.ainvoke(messages)
@@ -88,6 +95,24 @@ def create_agent_node_async(model: Runnable):
         return agent_response_update(response)
 
     return agent_node_async
+
+
+def _state_with_tool_inventory(
+    state: AgentState,
+    tool_registry: ToolRegistry | None,
+) -> AgentState:
+    if tool_registry is None:
+        return state
+    metadata = state.get("metadata") if isinstance(state.get("metadata"), dict) else {}
+    if isinstance(metadata.get("available_tools"), list):
+        return state
+    return {
+        **state,
+        "metadata": {
+            **metadata,
+            "available_tools": sorted(str(name) for name in tool_registry.by_name),
+        },
+    }
 
 
 def create_action_node(tool_registry: ToolRegistry) -> Callable[[AgentState], dict[str, Any]]:
@@ -135,7 +160,21 @@ def create_action_node(tool_registry: ToolRegistry) -> Callable[[AgentState], di
                 decision = evaluate_tool_call(name, normalized_args, command_scope=scope)
                 tool_message_status: str
                 artifact_meta: dict[str, Any] | None = None
-                if decision.needs_approval:
+                if decision.denied:
+                    content = json.dumps(
+                        {
+                            "status": "error",
+                            "error": {
+                                "code": "permission_denied",
+                                "message": decision.deny_reason
+                                or "Tool call denied by permission policy.",
+                                "details": {"tool": name, "risk": decision.risk_level},
+                            },
+                        },
+                        ensure_ascii=False,
+                    )
+                    tool_message_status = "error"
+                elif decision.needs_approval:
                     try:
                         if session_id:
                             approval_store.ensure_session(session_id, agent_id=agent_id)

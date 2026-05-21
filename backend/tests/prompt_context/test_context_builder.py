@@ -25,6 +25,7 @@ class _StubStore:
     def __init__(self, *, memories: list[dict[str, Any]] | None = None) -> None:
         self.snapshots: list[dict[str, Any]] = []
         self._memories = memories or []
+        self.skill_catalog = _StubSkillCatalogRepo()
 
     def get_session(self, session_id: str) -> dict[str, Any] | None:
         return {"id": session_id, "summary": "stub summary"}
@@ -41,13 +42,32 @@ class _StubStore:
     ) -> list[dict[str, Any]]:
         return list(self._memories[:limit])
 
-    def list_skills(self, *, agent_id: str = "default") -> list[Any]:
-        return []
-
     def record_prompt_snapshot(self, **kwargs: Any) -> dict[str, Any]:
         record = {"id": f"prompt-{len(self.snapshots) + 1}", **kwargs}
         self.snapshots.append(record)
         return record
+
+
+class _StubSkillCatalogRepo:
+    def __init__(self) -> None:
+        self.rows: list[dict[str, Any]] = []
+
+    def list_skills(
+        self,
+        *,
+        agent_id: str = "default",
+        status: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        rows = [row for row in self.rows if row.get("agent_id", agent_id) == agent_id]
+        if status is not None:
+            rows = [row for row in rows if row.get("status", "active") == status]
+        return rows[:limit]
+
+    def register_skill(self, **kwargs: Any) -> dict[str, Any]:
+        row = {"id": f"skill-{len(self.rows) + 1}", **kwargs}
+        self.rows.append(row)
+        return row
 
 
 def _make_state(*, user_msg: str = "hello world") -> dict[str, Any]:
@@ -61,16 +81,8 @@ def _make_state(*, user_msg: str = "hello world") -> dict[str, Any]:
 
 
 def _patch_skill_catalog(monkeypatch) -> None:
-    from app.agent_framework.prompt_context import builder as cb
-
-    class _StubCatalog:
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def list_skills(self) -> list[Any]:
-            return []
-
-    monkeypatch.setattr(cb, "SkillCatalog", _StubCatalog)
+    """Legacy no-op kept so old tests remain readable during the runtime migration."""
+    return None
 
 
 def _freeze_time(monkeypatch) -> None:
@@ -140,6 +152,86 @@ def test_markdown_profile_and_postgres_active_memory_are_separate_sections(
     assert "Seed profile item." in rendered.content
     assert "Active Memory from PostgreSQL" in rendered.content
     assert "runtime fact" in rendered.content
+
+
+def test_context_builder_uses_selected_skills_not_broad_installed_list(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    _patch_skill_catalog(monkeypatch)
+    agent_root = tmp_path / "default"
+    skills_root = agent_root / "skills"
+    skill_dir = skills_root / "browser"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        """---
+name: browser
+description: Browser automation helpers.
+triggers:
+  - inspect localhost
+domains: [frontend]
+---
+
+# Browser Skill
+
+Use Playwright-style browser checks for local UI verification.
+""",
+        encoding="utf-8",
+    )
+
+    from app.agent_framework.prompt_context import builder as cb
+
+    monkeypatch.setattr(cb, "DATA_ROOT", tmp_path)
+    store = _StubStore()
+    builder = ContextBuilder(store=store, memory_provider=None)
+
+    rendered = builder.build(
+        ContextBuildRequest(state=_make_state(user_msg="inspect localhost in browser"))
+    )
+
+    assert "Installed Skills" not in rendered.content
+    assert "Available Skill Index" in rendered.content
+    assert "Selected Skills" in rendered.content
+    assert "Browser automation helpers." in rendered.content
+    assert "Use Playwright-style browser checks" in rendered.content
+    assert rendered.skill_activations["selected"][0]["name"] == "browser"
+    assert rendered.skill_activations["selected"][0]["skill_id"] == "skill-1"
+
+
+def test_context_builder_does_not_inject_unrelated_skill_body(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    _patch_skill_catalog(monkeypatch)
+    skill_dir = tmp_path / "default" / "skills" / "xhs"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        """---
+name: xhs-content
+description: Plan Xiaohongshu posts.
+triggers:
+  - 小红书
+---
+
+# XHS Content
+
+This body should not appear for generic greetings.
+""",
+        encoding="utf-8",
+    )
+
+    from app.agent_framework.prompt_context import builder as cb
+
+    monkeypatch.setattr(cb, "DATA_ROOT", tmp_path)
+    rendered = ContextBuilder(store=_StubStore(), memory_provider=None).build(
+        ContextBuildRequest(state=_make_state(user_msg="hello there"))
+    )
+
+    assert "Available Skill Index" in rendered.content
+    assert "Plan Xiaohongshu posts." in rendered.content
+    assert "Selected Skills" not in rendered.content
+    assert "This body should not appear" not in rendered.content
+    assert rendered.skill_activations["selected"] == []
 
 
 def test_global_budget_caps_total_chars(monkeypatch) -> None:
@@ -217,6 +309,7 @@ def test_snapshot_payload_round_trips(monkeypatch) -> None:
     assert recorded["section_count"] == len(rendered.sections)
     # Two memories were recalled — they must show up as injections.
     assert len(recorded["injections"]) == 2
+    assert recorded["metadata"]["skill_activation"] == rendered.skill_activations
     ids = {item["memory_id"] for item in recorded["injections"]}
     assert ids == {"mem-A", "mem-B"}
     # Each injection must carry an integer rank starting at 0.
@@ -250,6 +343,7 @@ def test_back_compat_alias_and_snapshot_shape(monkeypatch) -> None:
     assert "total_chars" in payload
     assert "sections" in payload
     assert "injected_memories" in payload
+    assert "skill_activations" in payload
     # New keys present.
     assert "content_sha256" in payload
     assert "budget" in payload

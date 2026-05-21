@@ -63,7 +63,9 @@ def build_agent_graph(
     graph.add_node("planner", create_planner_node())
     graph.add_node(
         "agent",
-        create_agent_node_async(model) if async_model else create_agent_node(model),
+        create_agent_node_async(model, tool_registry)
+        if async_model
+        else create_agent_node(model, tool_registry),
     )
     graph.add_node("action", create_action_node(tool_registry))
     graph.add_node("critic", create_critic_node())

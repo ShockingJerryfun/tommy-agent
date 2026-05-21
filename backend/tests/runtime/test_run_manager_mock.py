@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 
@@ -358,6 +359,130 @@ async def test_run_manager_halts_when_tool_waits_for_approval():
     assert store.get_run(rid)["status"] == "interrupted"
     assistant = [m for m in store.list_messages(session_id) if m.role == "assistant"][-1]
     assert (assistant.metadata or {}).get("status") == "waiting_approval"
+
+
+@pytest.mark.asyncio
+async def test_run_manager_records_skill_activation_trace_and_credits_once():
+    store = PostgresAgentStore()
+    store.reset_for_tests()
+    skill = store.skill_catalog.register_skill(
+        agent_id="default",
+        name="browser",
+        relative_path="browser/SKILL.md",
+        signature="browser automation",
+        description="Browser automation.",
+        tool_chain=["browser.open"],
+        status="active",
+    )
+
+    class TraceGraph:
+        checkpointer = _FakeCheckpointer()
+
+        async def astream(self, inputs, config=None, stream_mode=None):
+            run_id = inputs["metadata"]["run_id"]
+            session_id = inputs["session_id"]
+            store.record_prompt_snapshot(
+                session_id=session_id,
+                agent_id="default",
+                run_id=run_id,
+                model="test-model",
+                total_chars=10,
+                section_count=1,
+                truncated_count=0,
+                dropped_count=0,
+                content_sha256="trace",
+                sections=[],
+                budget={},
+                metadata={
+                    "skill_activation": {
+                        "selected": [
+                            {
+                                "skill_id": skill["id"],
+                                "name": "browser",
+                                "relative_path": "browser/SKILL.md",
+                                "required_tools": ["browser.open"],
+                            }
+                        ]
+                    }
+                },
+            )
+            store.record_prompt_snapshot(
+                session_id=session_id,
+                agent_id="default",
+                run_id=run_id,
+                model="test-model",
+                total_chars=10,
+                section_count=1,
+                truncated_count=0,
+                dropped_count=0,
+                content_sha256="trace-second",
+                sections=[],
+                budget={},
+                metadata={
+                    "skill_activation": {
+                        "selected": [
+                            {
+                                "skill_id": skill["id"],
+                                "name": "browser",
+                                "relative_path": "browser/SKILL.md",
+                                "required_tools": ["browser.open"],
+                            }
+                        ]
+                    }
+                },
+            )
+            yield (
+                "custom",
+                {
+                    "type": "tool_start",
+                    "tool": "browser.open",
+                    "tool_call_id": "call-browser",
+                    "args": {"url": "http://localhost"},
+                },
+            )
+            yield (
+                "custom",
+                {
+                    "type": "tool_end",
+                    "tool": "browser.open",
+                    "tool_call_id": "call-browser",
+                    "status": "ok",
+                    "content": "opened",
+                },
+            )
+            yield ("messages", (FakeChunk("done"), {"langgraph_node": "agent"}))
+
+    async def factory():
+        return TraceGraph()
+
+    rm = RunManager(store=store, graph_factory=factory)
+    session_id = store.create_session(agent_id="default")
+    run = await rm.create_and_start_run(
+        RunCreatePayload(session_id=session_id, message="inspect localhost", agent_id="default"),
+    )
+    rid = str(run["id"])
+    async for ev in rm.stream_run_events(rid):
+        if ev.type == "done":
+            break
+
+    traces = store.list_skill_activation_traces_for_run(rid)
+    assert len(traces) == 2
+    assert [trace["matched_tools"] for trace in traces] == [["browser.open"], ["browser.open"]]
+    assert sum(1 for trace in traces if trace["credited"]) == 1
+    updated = store.skill_catalog.get(skill["id"])
+    assert updated is not None
+    assert updated["success_count"] == 1
+    assert updated["invocation_count"] == 1
+
+    metrics = store.get_run_metrics(session_id=session_id, run_id=rid)
+    rm._record_skill_activation_feedback(
+        SimpleNamespace(session_id=session_id, run_id=rid),
+        status="completed",
+        terminal_reason="completed",
+        metrics_row=metrics,
+    )
+    assert len(store.list_skill_activation_traces_for_run(rid)) == 2
+    assert store.skill_catalog.get(skill["id"])["invocation_count"] == 1
 
 
 @pytest.mark.asyncio

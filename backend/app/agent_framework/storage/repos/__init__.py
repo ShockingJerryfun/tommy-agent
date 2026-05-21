@@ -31,6 +31,7 @@ from .runs import RunRepo
 from .schema import ensure_schema, reset_for_tests
 from .search import SearchRepo
 from .sessions import SessionRepo
+from .skill_activation_traces import SkillActivationTraceRepo
 from .skill_catalog import SkillCatalogRepo
 from .skill_forge_runs import SkillForgeRunRepo
 from .skills import SkillRepo
@@ -57,6 +58,7 @@ __all__ = [
     "SearchRepo",
     "SessionRepo",
     "SkillCatalogRepo",
+    "SkillActivationTraceRepo",
     "SkillForgeRunRepo",
     "SkillRepo",
     "StoredMessage",

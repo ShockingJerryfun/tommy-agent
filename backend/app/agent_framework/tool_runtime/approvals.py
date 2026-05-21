@@ -15,6 +15,8 @@ class ApprovalDecision:
     needs_approval: bool
     risk_level: str = "low"
     summary: str = ""
+    denied: bool = False
+    deny_reason: str = ""
 
 
 def _approval_required_tools() -> set[str]:
@@ -22,7 +24,7 @@ def _approval_required_tools() -> set[str]:
     return {
         name
         for name, spec in policy._tools.items()  # noqa: SLF001 - intentional read
-        if str(spec.get("approval") or "never") != "never"
+        if str(spec.get("approval") or "never") not in {"never", "deny"}
     }
 
 
@@ -47,6 +49,8 @@ def evaluate_tool_call(
         needs_approval=decision.needs_approval,
         risk_level=decision.risk_level,
         summary=decision.summary,
+        denied=decision.denied,
+        deny_reason=decision.deny_reason,
     )
 
 

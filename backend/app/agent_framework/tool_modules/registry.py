@@ -7,6 +7,15 @@ from typing import Any
 from langchain_core.tools import BaseTool
 
 from .basic import get_current_time
+from .chatgpt_web import (
+    chatgpt_download_latest_images,
+    chatgpt_extract_latest_text,
+    chatgpt_new_chat,
+    chatgpt_open,
+    chatgpt_save_artifacts,
+    chatgpt_send_message,
+    chatgpt_wait_until_done,
+)
 from .collaboration import context_pact_update, delegate_task, skill_propose
 from .context import RUNTIME_TOOL_CONTEXT
 from .filesystem import (
@@ -18,6 +27,22 @@ from .filesystem import (
     write_local_file,
 )
 from .web import web_search
+from .xhs_content_ops import (
+    build_chatgpt_xhs_prompt,
+    check_xhs_content_risk,
+    create_xhs_content_job,
+    validate_xhs_note_json,
+)
+from .xhs_web import (
+    xhs_fill_body,
+    xhs_fill_hashtags,
+    xhs_fill_title,
+    xhs_open_creator,
+    xhs_start_note,
+    xhs_stop_before_publish,
+    xhs_take_preview_screenshot,
+    xhs_upload_images,
+)
 
 
 @dataclass(frozen=True)
@@ -65,5 +90,24 @@ def create_default_registry() -> ToolRegistry:
             skill_propose,
             context_pact_update,
             delegate_task,
+            create_xhs_content_job,
+            build_chatgpt_xhs_prompt,
+            validate_xhs_note_json,
+            check_xhs_content_risk,
+            chatgpt_open,
+            chatgpt_new_chat,
+            chatgpt_send_message,
+            chatgpt_wait_until_done,
+            chatgpt_extract_latest_text,
+            chatgpt_download_latest_images,
+            chatgpt_save_artifacts,
+            xhs_open_creator,
+            xhs_start_note,
+            xhs_upload_images,
+            xhs_fill_title,
+            xhs_fill_body,
+            xhs_fill_hashtags,
+            xhs_take_preview_screenshot,
+            xhs_stop_before_publish,
         )
     )

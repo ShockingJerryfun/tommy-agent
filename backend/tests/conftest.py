@@ -42,3 +42,4 @@ def _ensure_test_database() -> None:
 
 _ensure_test_database()
 os.environ["TOMMY_POSTGRES_DSN"] = TEST_POSTGRES_DSN
+os.environ.setdefault("TOMMY_EMBEDDING_PROVIDER", "null")

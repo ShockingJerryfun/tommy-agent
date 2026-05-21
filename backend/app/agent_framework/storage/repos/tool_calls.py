@@ -70,3 +70,18 @@ class ToolCallRepo:
                 (session_id,),
             ).fetchall()
         return [dict(row) | {"args": loads(row["args_json"])} for row in rows]
+
+    def list_for_run(self, run_id: str) -> list[dict[str, Any]]:
+        with self._connector.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    id, session_id, run_id, name, status,
+                    args_json, result, created_at, updated_at
+                FROM tool_calls
+                WHERE run_id = ?
+                ORDER BY created_at ASC
+                """,
+                (run_id,),
+            ).fetchall()
+        return [dict(row) | {"args": loads(row["args_json"])} for row in rows]

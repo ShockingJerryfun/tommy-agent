@@ -1,6 +1,7 @@
 "use client";
 
-import { ImagePlus, RotateCcw, Settings2 } from "lucide-react";
+import Link from "next/link";
+import { ImagePlus, Map, RotateCcw, Settings2 } from "lucide-react";
 import { useRef } from "react";
 
 import { useI18n } from "../lib/i18n";
@@ -68,6 +69,24 @@ export function SettingsPanel({
         </span>
         <LanguageToggle />
       </label>
+
+      <div>
+        <p className="mb-2 text-[11px] font-medium text-slate-400">
+          {t("settings.system")}
+        </p>
+        <Link
+          href="/architecture"
+          className="ios-glass-field soft-focus-ring liquid-hover flex min-h-12 items-center justify-between rounded-2xl px-3.5 py-3 text-[13px] font-semibold text-slate-700 transition dark:text-slate-200"
+        >
+          <span className="flex min-w-0 items-center gap-2">
+            <Map className="h-4 w-4 flex-shrink-0 text-slate-500 dark:text-slate-300" />
+            <span className="truncate">{t("settings.architecture")}</span>
+          </span>
+          <span className="text-[11px] font-medium text-slate-400">
+            {t("settings.open")}
+          </span>
+        </Link>
+      </div>
 
       <label className="block">
         <span className="mb-1.5 block text-[11px] font-medium text-slate-400">

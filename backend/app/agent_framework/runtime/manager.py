@@ -36,6 +36,22 @@ def _optional_int(value: Any) -> int | None:
         return None
 
 
+def _snapshot_skill_activation(snapshot: dict[str, Any]) -> dict[str, Any]:
+    metadata = snapshot.get("metadata")
+    if not isinstance(metadata, dict):
+        return {}
+    activation = metadata.get("skill_activation")
+    return activation if isinstance(activation, dict) else {}
+
+
+def _string_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        return [str(item) for item in value if str(item)]
+    return [str(value)] if str(value) else []
+
+
 class RunManager:
     def __init__(
         self,
@@ -547,14 +563,104 @@ class RunManager:
         status: str,
         terminal_reason: str,
         assistant_writer: AssistantMessageWriter,
-    ) -> None:
+    ) -> dict[str, Any] | None:
         if metrics.finalized:
-            return
-        metrics.finalize(
+            return None
+        row = metrics.finalize(
             status=status,
             terminal_reason=terminal_reason,
             output_chars=len(assistant_writer.content),
         )
+        self._record_skill_activation_feedback(
+            metrics,
+            status=status,
+            terminal_reason=terminal_reason,
+            metrics_row=row,
+        )
+        return row
+
+    def _record_skill_activation_feedback(
+        self,
+        metrics: RunMetricsRecorder,
+        *,
+        status: str,
+        terminal_reason: str,
+        metrics_row: dict[str, Any] | None,
+    ) -> None:
+        list_snapshots = getattr(self.store, "list_prompt_snapshots", None)
+        list_tool_calls = getattr(self.store, "list_tool_calls_for_run", None)
+        record_trace = getattr(self.store, "record_skill_activation_trace", None)
+        catalog = getattr(self.store, "skill_catalog", None)
+        if list_snapshots is None or list_tool_calls is None or record_trace is None:
+            return
+        try:
+            snapshots = list_snapshots(run_id=metrics.run_id, limit=50)
+            tool_calls = list_tool_calls(metrics.run_id)
+        except Exception:  # noqa: BLE001 - feedback traces must not break run finalization.
+            return
+
+        successful_tools = {
+            str(call.get("name"))
+            for call in tool_calls
+            if str(call.get("status") or "").lower() in {"done", "ok"}
+            and str(call.get("name") or "")
+        }
+        latency_ms = float((metrics_row or {}).get("duration_ms") or 0.0)
+        can_credit = status in {"completed", "error"}
+        credited_skill_ids = self._credited_skill_ids(metrics.run_id)
+
+        for snapshot in snapshots:
+            activation = _snapshot_skill_activation(snapshot)
+            selected = activation.get("selected")
+            if not isinstance(selected, list):
+                continue
+            for item in selected:
+                if not isinstance(item, dict):
+                    continue
+                skill_id = str(item.get("skill_id") or item.get("id") or "").strip()
+                if not skill_id:
+                    continue
+                required_tools = _string_list(item.get("required_tools"))
+                matched_tools = sorted(set(required_tools) & successful_tools)
+                creditable = can_credit and bool(required_tools) and bool(matched_tools)
+                credited = creditable and skill_id not in credited_skill_ids
+                try:
+                    _trace, created = record_trace(
+                        session_id=metrics.session_id,
+                        run_id=metrics.run_id,
+                        snapshot_id=str(snapshot["id"]),
+                        skill_id=skill_id,
+                        skill_name=str(item.get("name") or ""),
+                        relative_path=str(item.get("relative_path") or ""),
+                        required_tools=required_tools,
+                        matched_tools=matched_tools,
+                        credited=credited,
+                        terminal_status=status,
+                        terminal_reason=terminal_reason,
+                        selected=item,
+                    )
+                except Exception:  # noqa: BLE001 - best-effort feedback only.
+                    continue
+                if credited and created and catalog is not None:
+                    credited_skill_ids.add(skill_id)
+                    try:
+                        catalog.record_invocation(
+                            skill_id,
+                            success=status == "completed",
+                            latency_ms=latency_ms,
+                        )
+                    except Exception:  # noqa: BLE001 - trace is the durable source of truth.
+                        continue
+
+    def _credited_skill_ids(self, run_id: str) -> set[str]:
+        list_traces = getattr(self.store, "list_skill_activation_traces_for_run", None)
+        if list_traces is None:
+            return set()
+        try:
+            traces = list_traces(run_id)
+        except Exception:  # noqa: BLE001 - run feedback is best-effort.
+            return set()
+        return {str(trace.get("skill_id")) for trace in traces if trace.get("credited")}
 
     async def _maybe_verify_task(
         self,

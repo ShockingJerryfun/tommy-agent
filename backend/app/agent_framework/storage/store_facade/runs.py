@@ -162,3 +162,15 @@ class RunStoreMixin:
 
     def list_tool_calls(self, session_id: str) -> list[dict[str, Any]]:
         return self.tool_calls.list_tool_calls(session_id)
+
+    def list_tool_calls_for_run(self, run_id: str) -> list[dict[str, Any]]:
+        return self.tool_calls.list_for_run(run_id)
+
+    def record_skill_activation_trace(
+        self,
+        **kwargs: Any,
+    ) -> tuple[dict[str, Any], bool]:
+        return self.skill_activation_traces.record_trace(**kwargs)
+
+    def list_skill_activation_traces_for_run(self, run_id: str) -> list[dict[str, Any]]:
+        return self.skill_activation_traces.list_for_run(run_id)

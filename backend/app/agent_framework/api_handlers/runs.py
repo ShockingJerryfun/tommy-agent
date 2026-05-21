@@ -75,6 +75,19 @@ def get_run_replay_impl(store, run_id: str) -> dict[str, Any]:
     return {"replay": replay_run_events(store, run_id=run_id).as_dict()}
 
 
+def get_activation_trace_impl(store, run_id: str) -> dict[str, Any]:
+    run = store.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    snapshots = store.list_prompt_snapshots(run_id=run_id, limit=50)
+    return {
+        "run": run,
+        "snapshots": snapshots,
+        "trace_rows": store.list_skill_activation_traces_for_run(run_id),
+        "tool_calls": store.list_tool_calls_for_run(run_id),
+    }
+
+
 async def stream_run_events_impl(
     store,
     run_manager,

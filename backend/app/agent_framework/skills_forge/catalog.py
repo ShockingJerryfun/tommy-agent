@@ -9,6 +9,7 @@ from uuid import uuid4
 from pydantic import BaseModel, Field
 
 from ..paths import DATA_ROOT
+from ..skill_runtime.metadata import parse_skill_markdown
 from ..storage import PostgresAgentStore, get_agent_store
 
 
@@ -50,12 +51,13 @@ class SkillCatalog:
         summaries = []
         for path in sorted(self.skills_root.glob("**/SKILL.md")):
             text = path.read_text(encoding="utf-8", errors="replace")
-            metadata = _parse_frontmatter(text)
+            relative_path = str(path.relative_to(self.skills_root))
+            document = parse_skill_markdown(text, source_path=relative_path)
             summaries.append(
                 SkillSummary(
-                    name=metadata.get("name") or path.parent.name,
-                    path=str(path.relative_to(self.skills_root)),
-                    description=metadata.get("description") or "",
+                    name=document.metadata.name or path.parent.name,
+                    path=relative_path,
+                    description=document.metadata.description or "",
                     updated_at=datetime.fromtimestamp(path.stat().st_mtime, UTC).isoformat(),
                 )
             )
@@ -159,16 +161,3 @@ class SkillCatalog:
         if root != path and root not in path.parents:
             raise PermissionError(f"Path escapes skills root: {relative_path}")
         return path
-
-
-def _parse_frontmatter(text: str) -> dict[str, str]:
-    if not text.startswith("---"):
-        return {}
-    _, raw, *_ = text.split("---", 2)
-    metadata: dict[str, str] = {}
-    for line in raw.splitlines():
-        if ":" not in line:
-            continue
-        key, value = line.split(":", 1)
-        metadata[key.strip()] = value.strip().strip('"')
-    return metadata

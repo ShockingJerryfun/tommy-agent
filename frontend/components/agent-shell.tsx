@@ -2454,9 +2454,14 @@ export function AgentShell() {
           sessionId={sessionId}
           title={activeSession?.title}
           isStreaming={isStreaming}
+          settings={settings}
+          settingsOpen={settingsOpen}
+          tommyAvatarUrl={settings.tommyAvatarUrl}
           onNewSession={resetSession}
           onOpenSessions={() => setMobileSessionsOpen(true)}
           onOpenInspector={() => setMobileInspectorOpen(true)}
+          onToggleSettings={() => setSettingsOpen((value) => !value)}
+          onSettingsChange={updateSettings}
         />
 
         <MobileSessionDrawer
@@ -2616,11 +2621,13 @@ function SettingsNavCard({
   settings,
   onToggle,
   onChange,
+  compact = false,
 }: {
   open: boolean;
   settings: AgentSettings;
   onToggle: () => void;
   onChange: (settings: AgentSettings) => void;
+  compact?: boolean;
 }) {
   const { t } = useI18n();
 
@@ -2630,12 +2637,15 @@ function SettingsNavCard({
         type="button"
         onClick={onToggle}
         aria-expanded={open}
-        className={`ios-glass-pill soft-focus-ring inline-flex min-h-11 items-center gap-2 px-3 text-[12px] font-semibold text-slate-600 dark:text-slate-200 ${
+        aria-label={compact ? t("settings.title") : undefined}
+        className={`ios-glass-pill soft-focus-ring inline-flex items-center justify-center gap-2 text-[12px] font-semibold text-slate-600 dark:text-slate-200 ${
+          compact ? "h-10 w-10 rounded-full p-0" : "min-h-11 px-3"
+        } ${
           open ? "liquid-selected" : ""
         }`}
       >
         <Settings2 className="h-4 w-4" strokeWidth={2.1} />
-        {t("settings.title")}
+        {!compact && t("settings.title")}
       </button>
       {open && (
         <div className="absolute right-0 top-full z-40 mt-3">
@@ -2654,66 +2664,91 @@ function SessionMobileHeader({
   sessionId,
   title,
   isStreaming,
+  settings,
+  settingsOpen,
+  tommyAvatarUrl,
   onNewSession,
   onOpenSessions,
   onOpenInspector,
+  onToggleSettings,
+  onSettingsChange,
 }: {
   sessionId: string;
   title?: string;
   isStreaming: boolean;
+  settings: AgentSettings;
+  settingsOpen: boolean;
+  tommyAvatarUrl: string;
   onNewSession: () => void;
   onOpenSessions: () => void;
   onOpenInspector: () => void;
+  onToggleSettings: () => void;
+  onSettingsChange: (settings: AgentSettings) => void;
 }) {
   const { t } = useI18n();
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-start justify-between px-4 pt-[max(0.75rem,env(safe-area-inset-top)+0.75rem)] lg:hidden">
-      <button
-        type="button"
-        onClick={onOpenSessions}
-        className="ios-glass-pill pointer-events-auto flex h-14 w-14 flex-shrink-0 items-center justify-center text-slate-700 transition active:scale-95 dark:text-slate-200"
-        aria-label={t("app.a11y.openSessions")}
-      >
-        <Menu className="h-5 w-5" strokeWidth={2.2} />
-      </button>
-
-      <div className="ios-glass-pill pointer-events-auto flex h-12 min-w-0 max-w-[55%] items-center justify-center px-4">
-        <p className="truncate text-[13px] font-semibold tracking-tight text-slate-700 dark:text-slate-200">
-          {isStreaming ? (
-            <span className="flex items-center gap-2">
-              <span className="relative flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--primary-color)] opacity-60" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-[var(--primary-color)]" />
+    <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-start justify-between gap-2 px-3 pt-[max(0.6rem,env(safe-area-inset-top)+0.6rem)] lg:hidden">
+      <div className="pointer-events-auto ios-glass-pill flex min-w-0 flex-1 items-center gap-2 px-2.5 py-1.5">
+        <button
+          type="button"
+          onClick={onOpenSessions}
+          className="ios-glass-pill soft-focus-ring flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-slate-700 transition active:scale-95 dark:text-slate-200"
+          aria-label={t("app.a11y.openSessions")}
+        >
+          <Menu className="h-4 w-4" strokeWidth={2.2} />
+        </button>
+        <img
+          src={tommyAvatarUrl || "/tommy-avatar.png"}
+          alt="Tommy"
+          className="h-8 w-8 flex-shrink-0 rounded-full object-cover shadow-sm"
+        />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[13px] font-semibold tracking-tight text-slate-700 dark:text-slate-200">
+            {isStreaming ? (
+              <span className="flex items-center gap-2">
+                <span className="relative flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--primary-color)] opacity-60" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-[var(--primary-color)]" />
+                </span>
+                {t("app.top.thinking")}
               </span>
-              {t("app.top.thinking")}
-            </span>
-          ) : (
-            title || "Tommy"
-          )}
-        </p>
+            ) : (
+              title || "Tommy"
+            )}
+          </p>
+          <p className="truncate text-[10px] font-medium text-slate-400 dark:text-slate-500">
+            {sessionId ? `Session ${sessionId.slice(-6)}` : "Tommy Agent"}
+          </p>
+        </div>
       </div>
 
-      <div className="flex flex-shrink-0 items-center gap-2">
-        <div className="pointer-events-auto hidden sm:block">
-          <LanguageToggle compact />
+      <div className="flex flex-shrink-0 items-center gap-1.5">
+        <div className="pointer-events-auto">
+          <SettingsNavCard
+            open={settingsOpen}
+            settings={settings}
+            onToggle={onToggleSettings}
+            onChange={onSettingsChange}
+            compact
+          />
         </div>
         <button
           type="button"
           onClick={onOpenInspector}
-          className="ios-glass-pill pointer-events-auto flex h-14 w-14 items-center justify-center text-slate-700 transition active:scale-95 dark:text-slate-200"
+          className="ios-glass-pill pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full text-slate-700 transition active:scale-95 dark:text-slate-200"
           aria-label={t("app.a11y.openInspector")}
         >
-          <SlidersHorizontal className="h-5 w-5" strokeWidth={2.1} />
+          <SlidersHorizontal className="h-4 w-4" strokeWidth={2.1} />
         </button>
         <button
           type="button"
           onClick={onNewSession}
           disabled={isStreaming}
-          className="new-session-glass-button pointer-events-auto flex h-14 w-14 items-center justify-center text-slate-700 transition active:scale-95 disabled:opacity-40 dark:text-slate-200"
+          className="new-session-glass-button pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full text-slate-700 transition active:scale-95 disabled:opacity-40 dark:text-slate-200"
           aria-label={t("app.a11y.newSession")}
         >
-          <Plus className="h-5 w-5" strokeWidth={2.2} />
+          <Plus className="h-4 w-4" strokeWidth={2.2} />
         </button>
       </div>
     </div>

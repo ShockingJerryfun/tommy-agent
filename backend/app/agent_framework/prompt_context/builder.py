@@ -17,7 +17,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from ..paths import DATA_ROOT
-from ..skills_forge.catalog import SkillCatalog
+from ..skill_runtime import SkillContextAssembler
 from ..storage import get_agent_store
 from .budgets import (
     DEFAULT_MAX_CHARS,
@@ -66,6 +66,7 @@ class ContextBuilder:
             if isinstance(metadata.get("frontend_settings"), dict)
             else {}
         )
+        available_tools = metadata.get("available_tools")
         working_directory = str(frontend_settings.get("workingDirectory") or "").strip()
         session = self.store.get_session(session_id) if session_id else None
         context_pact = (
@@ -79,6 +80,15 @@ class ContextBuilder:
             agent_id=agent_id,
             query=query,
         )
+        skills_root = DATA_ROOT / agent_id / "skills"
+        skill_context = SkillContextAssembler(
+            store=self.store,
+            available_tools=available_tools if isinstance(available_tools, list) else None,
+        ).build(
+            agent_id=agent_id,
+            query=query,
+            skills_root=skills_root,
+        )
         drafts = build_section_drafts(
             store=self.store,
             agent_root=DATA_ROOT / agent_id,
@@ -87,7 +97,8 @@ class ContextBuilder:
             metadata=metadata,
             working_directory=working_directory,
             context_pact=context_pact,
-            skills=SkillCatalog(agent_id=agent_id, store=self.store).list_skills(),
+            available_skill_index=skill_context["available_index"],
+            selected_skills=skill_context["selected_markdown"],
             recalled_memories=recalled,
             extracted_context=state.get("extracted_context") or {},
             current_time=datetime.now(UTC).isoformat(),
@@ -110,6 +121,7 @@ class ContextBuilder:
                 memory_snapshot(item, query=query, rank=index)
                 for index, item in enumerate(recalled)
             ],
+            skill_activations=skill_context["activation"],
             budget=accounting,
             content_sha256=hashlib.sha256(body.encode("utf-8")).hexdigest(),
         )
@@ -133,6 +145,8 @@ class ContextBuilder:
             {**item, "rank": item.get("rank", index)}
             for index, item in enumerate(rendered.injected_memories)
         ]
+        snapshot_metadata = dict(metadata or {})
+        snapshot_metadata["skill_activation"] = rendered.skill_activations
         try:
             return record(
                 session_id=session_id,
@@ -146,7 +160,7 @@ class ContextBuilder:
                 content_sha256=rendered.content_sha256,
                 sections=[section.snapshot() for section in rendered.sections],
                 budget=rendered.budget.as_dict(),
-                metadata=metadata,
+                metadata=snapshot_metadata,
                 injections=injections,
             )
         except Exception:  # noqa: BLE001 - audit persistence must not break a turn.

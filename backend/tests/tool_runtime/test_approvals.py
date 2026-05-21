@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import inspect
+import json
+
+from app.agent_framework.tool_modules import filesystem
 from app.agent_framework.tool_runtime import create_default_registry
 from app.agent_framework.tool_runtime.approvals import (
     assert_command_allowed,
@@ -58,8 +62,19 @@ def test_run_shell_command_executes_safe_command_without_manual_approval(tmp_pat
 
     result = registry.invoke(
         "run_shell_command",
-        {"command": "pwd", "cwd": "."},
+        {"command": "printf 'hello from go'", "cwd": "."},
         context={"approval_granted": True},
     )
 
-    assert str(tmp_path) in result
+    payload = json.loads(result)
+    assert payload["runner"] == "go"
+    assert payload["cwd"] == str(tmp_path)
+    assert payload["exit_code"] == 0
+    assert payload["stdout"] == "hello from go"
+
+
+def test_shell_tool_no_longer_uses_python_subprocess_runner():
+    source = inspect.getsource(filesystem)
+
+    assert "import subprocess" not in source
+    assert "subprocess.run" not in source

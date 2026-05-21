@@ -15,6 +15,7 @@ from ..server import (
     MemorySearchResponse,
     SkillProposalRequest,
 )
+from ..skill_runtime import list_indexed_skill_summaries
 from ..skills_forge.catalog import SkillCatalog, SkillProposal
 from ..storage import LocalMemoryStore
 
@@ -131,15 +132,11 @@ def create_skill_proposal_impl(store, request: SkillProposalRequest) -> dict[str
 def list_skills_impl(store, agent_id: str) -> dict[str, Any]:
     catalog = SkillCatalog(agent_id=agent_id, store=store)
     return {
-        "skills": [
-            {
-                "name": skill.name,
-                "path": skill.path,
-                "description": skill.description,
-                "updated_at": skill.updated_at,
-            }
-            for skill in catalog.list_skills()
-        ],
+        "skills": list_indexed_skill_summaries(
+            store=store,
+            agent_id=agent_id,
+            skills_root=DATA_ROOT / agent_id / "skills",
+        ),
         "proposals": catalog.list_proposals(status="proposed"),
     }
 

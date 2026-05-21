@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 from pathlib import Path
 from typing import Any, Literal
 
@@ -10,6 +9,7 @@ from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
 from .context import require_approval, runtime_context
+from .go_shell_runner import run_go_shell_command
 
 
 class ReadWorkspaceFileArgs(BaseModel):
@@ -191,23 +191,9 @@ def run_shell_command(
     working_directory = _resolve_workspace_path(cwd)
     if not working_directory.is_dir():
         raise NotADirectoryError(f"Not a directory: {cwd}")
-    completed = subprocess.run(
-        command,
-        shell=True,
+    return run_go_shell_command(
+        command=command,
         cwd=working_directory,
-        executable=os.getenv("SHELL", "/bin/zsh"),
-        text=True,
-        capture_output=True,
-        timeout=timeout_seconds,
-        check=False,
-    )
-    return json.dumps(
-        {
-            "command": command,
-            "cwd": str(working_directory),
-            "exit_code": completed.returncode,
-            "stdout": (completed.stdout or "")[:max_output_chars],
-            "stderr": (completed.stderr or "")[:max_output_chars],
-        },
-        ensure_ascii=False,
+        timeout_seconds=timeout_seconds,
+        max_output_chars=max_output_chars,
     )
