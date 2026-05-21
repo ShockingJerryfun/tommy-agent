@@ -55,6 +55,13 @@ class PermissionPolicy:
     def denied_command_patterns(self) -> tuple[re.Pattern[str], ...]:
         return self._denied_patterns
 
+    def approval_required_tool_names(self) -> set[str]:
+        return {
+            name
+            for name, spec in self._tools.items()
+            if str(spec.get("approval") or "never") not in {"never", "deny"}
+        }
+
     def command_is_dangerous(self, command: str) -> bool:
         normalized = " ".join((command or "").strip().split())
         return any(pattern.search(normalized) for pattern in self._denied_patterns)

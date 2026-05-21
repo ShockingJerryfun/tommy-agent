@@ -20,12 +20,7 @@ class ApprovalDecision:
 
 
 def _approval_required_tools() -> set[str]:
-    policy = default_permission_policy()
-    return {
-        name
-        for name, spec in policy._tools.items()  # noqa: SLF001 - intentional read
-        if str(spec.get("approval") or "never") not in {"never", "deny"}
-    }
+    return default_permission_policy().approval_required_tool_names()
 
 
 APPROVAL_REQUIRED_TOOLS = _approval_required_tools()
