@@ -19,6 +19,13 @@ type ApiMessage = {
   created_at: string;
 };
 
+type StreamAttachment = {
+  id: string;
+  mime: string;
+  byte_size: number;
+  name: string;
+};
+
 type ApiRunEvent = {
   id: string;
   run_id?: string;
@@ -198,10 +205,52 @@ function jsonResponse(payload: unknown, status = 200) {
 
 function requestJson(request: Request) {
   try {
-    return request.postDataJSON() as Record<string, unknown>;
+    const payload: unknown = request.postDataJSON();
+    return isRecord(payload) ? payload : {};
   } catch {
     return {};
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isStreamAttachment(value: unknown): value is StreamAttachment {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.mime === "string" &&
+    typeof value.byte_size === "number" &&
+    typeof value.name === "string"
+  );
+}
+
+function appendStreamedUserMessage(
+  state: MockBackendState,
+  body: Record<string, unknown>,
+) {
+  if (typeof body.message !== "string") return;
+  const attachments = Array.isArray(body.attachments)
+    ? body.attachments.filter(isStreamAttachment)
+    : [];
+  const metadata =
+    attachments.length > 0
+      ? ({ attachments } satisfies Record<string, unknown>)
+      : undefined;
+
+  state.messages.push({
+    id: `msg-user-${Date.now()}`,
+    role: "user",
+    content: body.message,
+    metadata,
+    created_at: NOW,
+  });
+  state.sessions[0] = {
+    ...state.sessions[0],
+    preview: body.message,
+    updated_at: NOW,
+  };
 }
 
 async function fulfillBackend(route: Route, state: MockBackendState) {
@@ -261,7 +310,7 @@ async function fulfillBackend(route: Route, state: MockBackendState) {
   }
 
   if (method === "PATCH" && pathname.startsWith("/api/messages/")) {
-    const body = requestJson(request) as { content?: string };
+    const body = requestJson(request);
     const messageId = pathname.split("/")[3];
     const message = state.messages.find((item) => item.id === messageId);
     if (message && typeof body.content === "string") message.content = body.content;
@@ -270,8 +319,9 @@ async function fulfillBackend(route: Route, state: MockBackendState) {
   }
 
   if (method === "POST" && pathname.match(/^\/api\/messages\/[^/]+\/(rerun|regenerate)$/)) {
-    const body = requestJson(request) as { content?: string };
-    await route.fulfill(jsonResponse(runPayload(body.content ?? "")));
+    const body = requestJson(request);
+    const content = typeof body.content === "string" ? body.content : "";
+    await route.fulfill(jsonResponse(runPayload(content)));
     return;
   }
 
@@ -287,6 +337,7 @@ async function fulfillBackend(route: Route, state: MockBackendState) {
   }
 
   if (method === "POST" && pathname === "/api/chat/stream") {
+    appendStreamedUserMessage(state, requestJson(request));
     await route.fulfill({
       status: 200,
       contentType: "text/event-stream",

@@ -21,6 +21,33 @@ type SharedConversation = {
   }>;
 };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isSharedMessage(value: unknown): value is SharedConversation["messages"][number] {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    (value.role === "user" || value.role === "assistant" || value.role === "system") &&
+    typeof value.content === "string" &&
+    typeof value.created_at === "string"
+  );
+}
+
+function isSharedConversation(value: unknown): value is SharedConversation {
+  if (!isRecord(value) || !isRecord(value.session) || !Array.isArray(value.messages)) {
+    return false;
+  }
+  return (
+    typeof value.session.id === "string" &&
+    typeof value.session.title === "string" &&
+    typeof value.session.created_at === "string" &&
+    typeof value.session.updated_at === "string" &&
+    value.messages.every(isSharedMessage)
+  );
+}
+
 function apiBase() {
   return (process.env.AGENT_API_URL ?? "http://127.0.0.1:8000").replace(/\/$/, "");
 }
@@ -40,7 +67,10 @@ export default async function SharedConversationPage({
   if (!response.ok) {
     throw new Error("Failed to load shared conversation");
   }
-  const data = (await response.json()) as SharedConversation;
+  const payload: unknown = await response.json();
+  if (!isSharedConversation(payload)) {
+    throw new Error("Shared conversation response had an invalid shape");
+  }
 
   return (
     <main className="min-h-screen bg-[var(--primary-bg)] px-4 py-8 text-slate-950 dark:bg-slate-950 dark:text-slate-100">
@@ -49,13 +79,13 @@ export default async function SharedConversationPage({
           <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">
             公开只读视图
           </p>
-          <h1 className="mt-2 text-2xl font-semibold tracking-tight">{data.session.title}</h1>
+          <h1 className="mt-2 text-2xl font-semibold tracking-tight">{payload.session.title}</h1>
           <p className="mt-2 text-sm text-slate-400">
-            Updated {data.session.updated_at}
+            Updated {payload.session.updated_at}
           </p>
         </header>
         <div className="mt-6 space-y-8">
-          {data.messages.map((message) => (
+          {payload.messages.map((message) => (
             <article key={message.id} className="space-y-2">
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
                 {message.role === "user" ? "You" : "Tommy"} · {message.created_at}

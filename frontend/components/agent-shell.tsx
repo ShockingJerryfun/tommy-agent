@@ -89,11 +89,48 @@ const DEFAULT_SETTINGS: AgentSettings = {
   tommyAvatarUrl: "",
 };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isResponseStyle(value: unknown): value is AgentSettings["responseStyle"] {
+  return value === "balanced" || value === "concise" || value === "detailed";
+}
+
+function isThinkingEffort(value: unknown): value is AgentSettings["thinkingEffort"] {
+  return value === "high" || value === "max";
+}
+
+function isTheme(value: unknown): value is AgentSettings["theme"] {
+  return value === "system" || value === "light" || value === "dark";
+}
+
+function isDensity(value: unknown): value is AgentSettings["density"] {
+  return value === "compact" || value === "comfortable";
+}
+
+function parseStoredSettings(value: unknown): Partial<AgentSettings> {
+  if (!isRecord(value)) return {};
+  const settings: Partial<AgentSettings> = {};
+  if (typeof value.model === "string") settings.model = value.model;
+  if (isResponseStyle(value.responseStyle)) settings.responseStyle = value.responseStyle;
+  if (typeof value.temperature === "number") settings.temperature = value.temperature;
+  if (typeof value.thinkingMode === "boolean") settings.thinkingMode = value.thinkingMode;
+  if (isThinkingEffort(value.thinkingEffort)) settings.thinkingEffort = value.thinkingEffort;
+  if (isTheme(value.theme)) settings.theme = value.theme;
+  if (isDensity(value.density)) settings.density = value.density;
+  if (typeof value.showRunGraph === "boolean") settings.showRunGraph = value.showRunGraph;
+  if (typeof value.expandedTools === "boolean") settings.expandedTools = value.expandedTools;
+  if (typeof value.userAvatarUrl === "string") settings.userAvatarUrl = value.userAvatarUrl;
+  if (typeof value.tommyAvatarUrl === "string") settings.tommyAvatarUrl = value.tommyAvatarUrl;
+  return settings;
+}
+
 function loadSettings(): AgentSettings {
   try {
     const raw = window.localStorage.getItem(SETTINGS_KEY);
     if (!raw) return DEFAULT_SETTINGS;
-    const stored = JSON.parse(raw) as Partial<AgentSettings>;
+    const stored = parseStoredSettings(JSON.parse(raw));
     return {
       ...DEFAULT_SETTINGS,
       ...stored,
@@ -316,6 +353,18 @@ type ApiSessionListItem = {
   updated_at: string;
 };
 
+function isApiSessionListItem(value: unknown): value is ApiSessionListItem {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.title === "string" &&
+    typeof value.preview === "string" &&
+    typeof value.pinned === "boolean" &&
+    typeof value.archived === "boolean" &&
+    typeof value.updated_at === "string"
+  );
+}
+
 type ApiMessage = {
   id: string;
   role: ChatMessage["role"];
@@ -325,6 +374,21 @@ type ApiMessage = {
   run_summary?: ApiRunSummary | null;
 };
 
+function isChatMessageRole(value: unknown): value is ChatMessage["role"] {
+  return value === "user" || value === "assistant" || value === "system";
+}
+
+function isApiMessage(value: unknown): value is ApiMessage {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    isChatMessageRole(value.role) &&
+    typeof value.content === "string" &&
+    typeof value.created_at === "string" &&
+    (value.metadata === undefined || isRecord(value.metadata))
+  );
+}
+
 type ApiAttachmentRef = {
   id: string;
   mime: string;
@@ -332,6 +396,17 @@ type ApiAttachmentRef = {
   name: string;
   thumbnail_url?: string;
 };
+
+function isApiAttachmentRef(value: unknown): value is ApiAttachmentRef {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.mime === "string" &&
+    typeof value.byte_size === "number" &&
+    typeof value.name === "string" &&
+    (value.thumbnail_url === undefined || typeof value.thumbnail_url === "string")
+  );
+}
 
 type ApiRunSummary = {
   run_id: string;
@@ -355,6 +430,19 @@ type ApiSearchResult = {
   snippet: string;
 };
 
+function isApiSearchResult(value: unknown): value is ApiSearchResult {
+  return (
+    isRecord(value) &&
+    typeof value.message_id === "string" &&
+    typeof value.session_id === "string" &&
+    typeof value.session_title === "string" &&
+    typeof value.role === "string" &&
+    typeof value.position === "number" &&
+    typeof value.created_at === "string" &&
+    typeof value.snippet === "string"
+  );
+}
+
 type ApiRunEvent = {
   id: string;
   run_id?: string;
@@ -365,6 +453,24 @@ type ApiRunEvent = {
   sequence?: number;
   created_at: string;
 };
+
+function isRunStepStatus(value: unknown): value is RunStep["status"] {
+  return value === "running" || value === "done" || value === "error";
+}
+
+function isApiRunEvent(value: unknown): value is ApiRunEvent {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.type === "string" &&
+    typeof value.label === "string" &&
+    isRunStepStatus(value.status) &&
+    typeof value.created_at === "string" &&
+    (value.run_id === undefined || typeof value.run_id === "string") &&
+    (value.sequence === undefined || typeof value.sequence === "number") &&
+    (value.payload === undefined || isRecord(value.payload))
+  );
+}
 
 type ApiRun = {
   id: string;
@@ -388,6 +494,19 @@ type ApiRun = {
   error?: string;
 };
 
+function isApiRun(value: unknown): value is ApiRun {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.session_id === "string" &&
+    typeof value.agent_id === "string" &&
+    typeof value.status === "string" &&
+    typeof value.input === "string" &&
+    typeof value.created_at === "string" &&
+    typeof value.updated_at === "string"
+  );
+}
+
 type ApiRunStartResponse = ApiRun | { run_id: string; status: string };
 
 function runResponseId(run: ApiRunStartResponse) {
@@ -402,6 +521,27 @@ type ApiToolCall = {
   args?: Record<string, unknown>;
   result?: string;
 };
+
+function isToolCallStatus(value: unknown): value is ToolCallView["status"] {
+  return (
+    value === "running" ||
+    value === "pending_approval" ||
+    value === "done" ||
+    value === "error"
+  );
+}
+
+function isApiToolCall(value: unknown): value is ApiToolCall {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.run_id === "string" &&
+    typeof value.name === "string" &&
+    isToolCallStatus(value.status) &&
+    (value.args === undefined || isRecord(value.args)) &&
+    (value.result === undefined || typeof value.result === "string")
+  );
+}
 
 type ApiSessionDetail = {
   session?: Record<string, unknown>;
@@ -419,16 +559,44 @@ type ApiSessionDetail = {
   pending_approvals?: ApprovalRequestView[];
 };
 
-function isToolCallView(value: unknown): value is ToolCallView {
-  if (!value || typeof value !== "object") return false;
-  const candidate = value as Partial<ToolCallView>;
+function isApiSessionDetail(value: unknown): value is ApiSessionDetail {
   return (
-    typeof candidate.id === "string" &&
-    typeof candidate.name === "string" &&
-    (candidate.status === "running" ||
-      candidate.status === "pending_approval" ||
-      candidate.status === "done" ||
-      candidate.status === "error")
+    isRecord(value) &&
+    Array.isArray(value.messages) &&
+    value.messages.every(isApiMessage) &&
+    Array.isArray(value.run_events) &&
+    value.run_events.every(isApiRunEvent) &&
+    Array.isArray(value.tool_calls) &&
+    value.tool_calls.every(isApiToolCall) &&
+    (value.latest_run === undefined || value.latest_run === null || isApiRun(value.latest_run)) &&
+    (value.active_run === undefined || value.active_run === null || isApiRun(value.active_run))
+  );
+}
+
+function sessionsFromPayload(value: unknown): ApiSessionListItem[] {
+  if (!isRecord(value) || !Array.isArray(value.sessions)) return [];
+  return value.sessions.filter(isApiSessionListItem);
+}
+
+function sessionIdFromPayload(value: unknown): string {
+  if (isRecord(value) && typeof value.session_id === "string") return value.session_id;
+  throw new Error("Session response returned an invalid payload");
+}
+
+function searchResultsFromPayload(value: unknown): ApiSearchResult[] {
+  if (!isRecord(value) || !Array.isArray(value.results)) return [];
+  return value.results.filter(isApiSearchResult);
+}
+
+function isToolCallView(value: unknown): value is ToolCallView {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.id === "string" &&
+    typeof value.name === "string" &&
+    (value.status === "running" ||
+      value.status === "pending_approval" ||
+      value.status === "done" ||
+      value.status === "error")
   );
 }
 
@@ -481,24 +649,15 @@ function parseStoredAttachments(
   if (!Array.isArray(value)) return undefined;
   const attachments: ComposerAttachment[] = [];
   for (const item of value) {
-    if (!item || typeof item !== "object") continue;
-    const attachment = item as Partial<ApiAttachmentRef>;
-    if (
-      typeof attachment.id !== "string" ||
-      typeof attachment.mime !== "string" ||
-      typeof attachment.name !== "string" ||
-      typeof attachment.byte_size !== "number"
-    ) {
-      continue;
-    }
+    if (!isApiAttachmentRef(item)) continue;
     attachments.push({
-      id: attachment.id,
-      name: attachment.name,
-      mime: attachment.mime,
-      byteSize: attachment.byte_size,
+      id: item.id,
+      name: item.name,
+      mime: item.mime,
+      byteSize: item.byte_size,
       thumbnailUrl: attachmentUrl(
-        attachment.thumbnail_url ?? "",
-        attachment.id,
+        item.thumbnail_url ?? "",
+        item.id,
       ),
     });
   }
@@ -516,7 +675,10 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     throw new StreamHttpError(response.status, await response.text(), "API");
   }
-  return (await response.json()) as T;
+  const payload: unknown = await response.json();
+  // The generic API client is the app's dynamic JSON boundary; call sites
+  // should validate payload shape before relying on untrusted fields.
+  return payload as T;
 }
 
 function formatStreamError(error: unknown) {
@@ -539,7 +701,14 @@ async function assertEventStream(response: Response) {
 function parseStreamEvent(event: EventSourceMessage): AgentEvent | null {
   if (!event.data) return null;
   try {
-    return JSON.parse(event.data) as AgentEvent;
+    const parsed: unknown = JSON.parse(event.data);
+    if (isRecord(parsed) && typeof parsed.type === "string" && isRecord(parsed.data)) {
+      return { type: parsed.type, data: parsed.data };
+    }
+    if (isRecord(parsed) && typeof event.event === "string" && event.event) {
+      return { type: event.event, data: parsed };
+    }
+    throw new Error("event payload is missing type or data");
   } catch {
     throw new Error(
       `Invalid stream event payload: ${event.data.slice(0, 200)}`,
@@ -793,18 +962,16 @@ export function AgentShell() {
   }, [input, isStreaming]);
 
   async function fetchSessions() {
-    const result = await apiJson<{ sessions: ApiSessionListItem[] }>(
-      "/api/sessions",
-    );
-    return result.sessions.map(toSessionListItem);
+    const result = await apiJson<unknown>("/api/sessions");
+    return sessionsFromPayload(result).map(toSessionListItem);
   }
 
   async function createBackendSession() {
-    const result = await apiJson<{ session_id: string }>("/api/sessions", {
+    const result = await apiJson<unknown>("/api/sessions", {
       method: "POST",
       body: JSON.stringify({ title: "新对话" }),
     });
-    return result.session_id;
+    return sessionIdFromPayload(result);
   }
 
   async function refreshSessions() {
@@ -824,7 +991,10 @@ export function AgentShell() {
     if (!response.ok) {
       throw new StreamHttpError(response.status, await response.text(), "API");
     }
-    const payload = (await response.json()) as ApiAttachmentRef;
+    const payload: unknown = await response.json();
+    if (!isApiAttachmentRef(payload)) {
+      throw new Error("Attachment upload returned an invalid payload");
+    }
     return {
       id: payload.id,
       name: payload.name,
@@ -905,9 +1075,13 @@ export function AgentShell() {
     subscribeAbortRef.current?.abort();
     subscribeAbortRef.current = null;
     setActiveRunId(null);
-    const detail = await apiJson<ApiSessionDetail>(
+    const payload = await apiJson<unknown>(
       `/api/sessions/${nextSessionId}`,
     );
+    if (!isApiSessionDetail(payload)) {
+      throw new Error("Session detail response returned an invalid payload");
+    }
+    const detail = payload;
     const loadedMessages = attachTools(detail.messages, detail.tool_calls);
     const loadedSteps = detail.run_events.map(toRunStep);
     window.localStorage.setItem(SESSION_ID_KEY, nextSessionId);
@@ -1218,10 +1392,10 @@ export function AgentShell() {
   const searchMessages = useCallback(
     async (query: string): Promise<SearchResultItem[]> => {
       const params = new URLSearchParams({ q: query, limit: "20" });
-      const result = await apiJson<{ results: ApiSearchResult[] }>(
+      const result = await apiJson<unknown>(
         `/api/search?${params}`,
       );
-      return result.results.map((item) => ({
+      return searchResultsFromPayload(result).map((item) => ({
         messageId: item.message_id,
         sessionId: item.session_id,
         sessionTitle: item.session_title,
@@ -3091,7 +3265,7 @@ function MobileSessionDrawer({
                       )
                     }
                     className="admin-icon-action mr-2 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-slate-400 transition disabled:opacity-40 dark:text-slate-500"
-                    aria-label={`${t("app.sidebar.conversations")}：${session.title}`}
+                    aria-label={`${t("app.sidebar.moreActions")}：${session.title}`}
                   >
                     <MoreHorizontal className="h-4 w-4" />
                   </button>

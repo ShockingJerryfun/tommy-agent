@@ -450,7 +450,7 @@ function SessionRows({
                 onMenuToggle(openMenuId === session.id ? null : session.id)
               }
               disabled={isStreaming}
-              aria-label={`${t("app.sidebar.searchResults")}：${session.title}`}
+              aria-label={`${t("app.sidebar.moreActions")}：${session.title}`}
               className="admin-icon-action soft-focus-ring mr-2 mt-2 flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition disabled:cursor-not-allowed md:h-7 md:w-7 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 dark:hover:text-slate-100"
             >
               <MoreHorizontal className="h-4 w-4" />

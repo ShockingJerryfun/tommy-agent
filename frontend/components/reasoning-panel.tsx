@@ -61,6 +61,8 @@ type PipelineNodeState = {
   triggered: boolean;
 };
 
+type PipelineNodeDraft = Omit<PipelineNodeState, "id" | "label">;
+
 const PIPELINE_TEMPLATE: { id: PipelineNodeId; label: string; conditional: boolean }[] = [
   { id: "input", label: "接收输入", conditional: false },
   { id: "context", label: "构建上下文", conditional: false },
@@ -78,7 +80,7 @@ const PIPELINE_TEMPLATE: { id: PipelineNodeId; label: string; conditional: boole
 /* ── Build pipeline state from RunStep array ───────────── */
 
 function buildPipelineState(steps: RunStep[]): PipelineNodeState[] {
-  const state = new Map<PipelineNodeId, { status: NodeStatus; detail?: string; toolCount?: number; triggered: boolean }>();
+  const state = new Map<PipelineNodeId, PipelineNodeDraft>();
 
   for (const t of PIPELINE_TEMPLATE) {
     state.set(t.id, { status: "idle", triggered: false });
@@ -98,7 +100,7 @@ function buildPipelineState(steps: RunStep[]): PipelineNodeState[] {
       const memories = step.payload?.injected_memories;
       if (Array.isArray(memories) && memories.length > 0) {
         promote(state, "memoryRead", step.status);
-        const cur = state.get("memoryRead")!;
+        const cur = nodeDraft(state, "memoryRead");
         cur.detail = `${memories.length} 条记忆`;
       }
     }
@@ -117,7 +119,7 @@ function buildPipelineState(steps: RunStep[]): PipelineNodeState[] {
           critic: "质量检查",
           reflector: "运行反馈",
         };
-        const cur = state.get("thinking")!;
+        const cur = nodeDraft(state, "thinking");
         cur.detail = labels[node as string] ?? String(node);
       } else {
         promote(state, "thinking", step.status);
@@ -126,13 +128,13 @@ function buildPipelineState(steps: RunStep[]): PipelineNodeState[] {
 
     if (step.type === "model") {
       promote(state, "thinking", step.status);
-      const cur = state.get("thinking")!;
+      const cur = nodeDraft(state, "thinking");
       cur.detail = step.label;
     }
 
     if (step.type === "tool") {
       promote(state, "toolExec", step.status);
-      const cur = state.get("toolExec")!;
+      const cur = nodeDraft(state, "toolExec");
       cur.toolCount = (cur.toolCount ?? 0) + (step.status !== "running" ? 1 : 0);
       const toolName = stripToolStatus(step.label);
       cur.detail = toolName;
@@ -148,13 +150,13 @@ function buildPipelineState(steps: RunStep[]): PipelineNodeState[] {
 
     if (step.type === "verification") {
       promote(state, "verification", step.status);
-      const cur = state.get("verification")!;
+      const cur = nodeDraft(state, "verification");
       cur.detail = step.label;
     }
 
     if (step.type === "memory" || step.type === "skill") {
       promote(state, "memoryWrite", step.status);
-      const cur = state.get("memoryWrite")!;
+      const cur = nodeDraft(state, "memoryWrite");
       cur.detail = step.type === "skill" ? "Skill 提案" : "记忆提案";
     }
 
@@ -180,7 +182,7 @@ function buildPipelineState(steps: RunStep[]): PipelineNodeState[] {
   }
 
   return PIPELINE_TEMPLATE.map((t) => {
-    const s = state.get(t.id)!;
+    const s = nodeDraft(state, t.id);
     return {
       id: t.id,
       label: t.label,
@@ -193,12 +195,11 @@ function buildPipelineState(steps: RunStep[]): PipelineNodeState[] {
 }
 
 function promote(
-  state: Map<PipelineNodeId, { status: NodeStatus; detail?: string; toolCount?: number; triggered: boolean }>,
+  state: Map<PipelineNodeId, PipelineNodeDraft>,
   id: PipelineNodeId,
   stepStatusOrNode: RunStep["status"] | NodeStatus,
 ) {
-  const cur = state.get(id);
-  if (!cur) return;
+  const cur = nodeDraft(state, id);
   cur.triggered = true;
   const mapped: Record<string, NodeStatus> = { running: "active", error: "error", done: "done", idle: "idle", active: "active" };
   const next = mapped[stepStatusOrNode] ?? "done";
@@ -206,6 +207,18 @@ function promote(
   if (rank[next] >= rank[cur.status]) {
     cur.status = next;
   }
+}
+
+function nodeDraft(
+  state: Map<PipelineNodeId, PipelineNodeDraft>,
+  id: PipelineNodeId,
+): PipelineNodeDraft {
+  let current = state.get(id);
+  if (!current) {
+    current = { status: "idle", triggered: false };
+    state.set(id, current);
+  }
+  return current;
 }
 
 /* ── Context summary (preserved) ───────────────────────── */

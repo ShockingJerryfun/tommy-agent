@@ -37,6 +37,26 @@ type PromptItem = {
   shortcut: string;
 };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isPromptItem(value: unknown): value is PromptItem {
+  return (
+    isRecord(value) &&
+    (value.kind === "builtin" || value.kind === "user") &&
+    typeof value.id === "string" &&
+    typeof value.name === "string" &&
+    typeof value.body === "string" &&
+    typeof value.shortcut === "string"
+  );
+}
+
+function promptItemsFromPayload(value: unknown): PromptItem[] {
+  if (!isRecord(value) || !Array.isArray(value.prompts)) return [];
+  return value.prompts.filter(isPromptItem);
+}
+
 type PromptTrigger = {
   kind: "builtin" | "user";
   icon: "slash" | "at";
@@ -214,8 +234,8 @@ export function ChatComposer({
       try {
         const response = await fetch(`${resolveApiBase()}/api/prompts`);
         if (!response.ok) return;
-        const payload = (await response.json()) as { prompts?: PromptItem[] };
-        if (!cancelled) setPrompts(payload.prompts ?? []);
+        const payload: unknown = await response.json();
+        if (!cancelled) setPrompts(promptItemsFromPayload(payload));
       } catch {
         // Prompt shortcuts are optional UI sugar; keep the composer usable offline.
       }

@@ -21,7 +21,7 @@ test("deletes a session directly from the menu", async ({ page }, testInfo) => {
       response.url().includes("/api/sessions/session-e2e-1"),
   );
 
-  await page.getByRole("button", { name: "Delete" }).click();
+  await page.getByRole("button", { name: "删除" }).click();
 
   await deleteResponse;
   expect(sawDialog).toBe(false);

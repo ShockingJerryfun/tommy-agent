@@ -22,7 +22,7 @@ test("creates a share link from the session menu", async ({ page }, testInfo) =>
       response.url().includes("/api/sessions/session-e2e-1/share"),
   );
 
-  await page.getByRole("button", { name: "Share" }).click();
+  await page.getByRole("button", { name: "分享" }).click();
   await shareResponse;
 
   await expect(page.getByText("/share/test-token")).toBeVisible();

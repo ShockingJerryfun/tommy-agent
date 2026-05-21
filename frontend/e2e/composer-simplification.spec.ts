@@ -17,5 +17,5 @@ test("composer is streamlined and enter sends", async ({ page }) => {
   await composer.press("Enter");
   await streamRequest;
 
-  await expect(page.getByText("Enter should send")).toBeVisible();
+  await expect(page.getByRole("log").getByText("Enter should send")).toBeVisible();
 });

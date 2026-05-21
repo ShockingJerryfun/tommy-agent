@@ -31,6 +31,7 @@ test("sends an image attachment with a chat message", async ({ page }, testInfo)
   await page.getByRole("button", { name: "发送消息" }).click();
   await streamRequest;
 
-  await expect(page.getByText("What is in this image?")).toBeVisible();
-  await expect(page.getByRole("link", { name: /打开附件 avatar\.png/ })).toBeVisible();
+  const messageLog = page.getByRole("log");
+  await expect(messageLog.getByText("What is in this image?")).toBeVisible();
+  await expect(messageLog.getByRole("link", { name: /打开附件 avatar\.png/ })).toBeVisible();
 });
