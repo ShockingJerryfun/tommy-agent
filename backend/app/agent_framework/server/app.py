@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -83,6 +84,8 @@ from . import (
     StopSessionRequest,
     UpdatePromptRequest,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def cors_origins() -> list[str]:
@@ -190,8 +193,8 @@ async def delete_session(session_id: str) -> dict[str, str]:
     checkpointer = _graph.checkpointer if _graph is not None else await create_async_checkpointer()
     try:
         await checkpointer.adelete_thread(session_id)
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001 - session row is already deleted.
+        logger.warning("Unable to delete checkpoint thread for session %s: %s", session_id, exc)
     return {"status": "deleted"}
 
 

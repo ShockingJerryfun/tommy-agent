@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
 from .budgets import REQUIRED_SECTIONS, SECTION_BUDGETS, SECTION_MIN_CHARS
 from .pact import pact_markdown
 from .types import Section
+
+logger = logging.getLogger(__name__)
 
 RENDER_ORDER: dict[str, int] = {
     "runtime": 10,
@@ -245,11 +248,13 @@ def subagent_summary_markdown(store: Any, session_id: str) -> str:
         return ""
     try:
         from ..subagents import subagent_summary_section
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Subagent summary section is unavailable: %s", exc)
         return ""
     try:
         return subagent_summary_section(store, parent_session_id=session_id)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Unable to build subagent summary for session %s: %s", session_id, exc)
         return ""
 
 

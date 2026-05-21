@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
@@ -25,6 +26,8 @@ from .run_inputs import (
 )
 from .types import RunCreatePayload
 from .verification import TaskVerifier
+
+logger = logging.getLogger(__name__)
 
 
 def _optional_int(value: Any) -> int | None:
@@ -787,8 +790,8 @@ class RunManager:
                     embedding=embedding,
                     model=provider.embedder.model,
                 )
-        except Exception:  # noqa: BLE001 - embedding is best-effort
-            pass
+        except Exception as exc:  # noqa: BLE001 - embedding is best-effort
+            logger.debug("Unable to embed proposed memory %s: %s", proposal.get("id"), exc)
         await self.append_and_publish_event(
             payload.session_id,
             run_id,
@@ -846,8 +849,8 @@ class RunManager:
                     run_id=run_id,
                     messages=older_for_flush,
                 )
-        except Exception:  # noqa: BLE001 - never fail compaction on flush errors
-            pass
+        except Exception as exc:  # noqa: BLE001 - never fail compaction on flush errors
+            logger.warning("Unable to flush memories before compaction for run %s: %s", run_id, exc)
 
         compaction = compact_transcript_records(stored_for_compaction, keep_recent=18)
         if not compaction.summary:

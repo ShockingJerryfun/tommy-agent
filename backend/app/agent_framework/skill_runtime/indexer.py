@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
 from ..memory_platform import EMBEDDING_DIM
 from .metadata import parse_skill_markdown
 from .types import SkillDocument, SkillMetadata
+
+logger = logging.getLogger(__name__)
 
 
 class SkillIndexer:
@@ -118,7 +121,12 @@ class SkillIndexer:
             return
         try:
             embedding = self._embedder.embed(signature)
-        except Exception:  # noqa: BLE001 - vector indexing is a best-effort recall path.
+        except Exception as exc:  # noqa: BLE001 - vector indexing is a best-effort recall path.
+            logger.debug(
+                "Skill signature embedding failed for skill_id=%s: %s",
+                row.get("id"),
+                exc,
+            )
             return
         if not embedding or len(embedding) != EMBEDDING_DIM:
             return
@@ -143,7 +151,8 @@ class SkillIndexer:
             return
         try:
             rows = list_skills(agent_id=agent_id, status="active", limit=1000)
-        except Exception:  # noqa: BLE001 - stale cleanup must not break indexing.
+        except Exception as exc:  # noqa: BLE001 - stale cleanup must not break indexing.
+            logger.warning("Unable to list active skills for stale cleanup: %s", exc)
             return
         for row in rows:
             relative_path = _source_relative_path(row)
@@ -157,7 +166,8 @@ class SkillIndexer:
                 continue
             try:
                 set_status(skill_id, "retired")
-            except Exception:  # noqa: BLE001 - keep processing other catalog rows.
+            except Exception as exc:  # noqa: BLE001 - keep processing other catalog rows.
+                logger.warning("Unable to retire missing skill %s: %s", skill_id, exc)
                 continue
             diagnostics.append(
                 {
@@ -186,11 +196,12 @@ def list_indexed_skill_summaries(
     if root.exists():
         try:
             SkillIndexer(store=store).sync(agent_id, root)
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001 - listing falls back to existing catalog rows.
+            logger.warning("Unable to sync skills before listing summaries: %s", exc)
     try:
         rows = store.skill_catalog.list_skills(agent_id=agent_id, status=status, limit=limit)
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 - callers expect an empty listing on catalog failure.
+        logger.warning("Unable to list indexed skill summaries: %s", exc)
         return []
     return [_summary_from_row(row) for row in rows]
 

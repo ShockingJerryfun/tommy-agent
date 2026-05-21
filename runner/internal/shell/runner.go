@@ -78,10 +78,18 @@ func Run(ctx context.Context, req Request) Response {
 		return resp
 	}
 
+	waitDone := make(chan struct{})
+	go func() {
+		select {
+		case <-runCtx.Done():
+			killProcessGroup(cmd)
+		case <-waitDone:
+		}
+	}()
 	err = cmd.Wait()
+	close(waitDone)
 	if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
 		resp.TimedOut = true
-		killProcessGroup(cmd)
 	}
 
 	resp.DurationMS = elapsedMS(started)

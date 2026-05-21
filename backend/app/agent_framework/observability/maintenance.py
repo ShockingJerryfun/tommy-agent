@@ -118,7 +118,8 @@ def _distinct_agent_ids(store: Any) -> list[str]:
                 "SELECT DISTINCT agent_id FROM sessions WHERE agent_id IS NOT NULL"
             ).fetchall()
         return [row[0] for row in rows if row and row[0]]
-    except Exception:  # noqa: BLE001 — never raise out of maintenance.
+    except Exception as exc:  # noqa: BLE001 — never raise out of maintenance.
+        logger.debug("Unable to list distinct agent ids for maintenance: %s", exc)
         return []
 
 
@@ -156,7 +157,8 @@ def default_maintenance_jobs(store: Any) -> list[MaintenanceJob]:
     async def skills_forge_nightly() -> None:
         try:
             from ..skills_forge import SkillForge, run_nightly
-        except Exception:  # noqa: BLE001 — optional pipeline.
+        except Exception as exc:  # noqa: BLE001 — optional pipeline.
+            logger.warning("Skill Forge maintenance pipeline unavailable: %s", exc)
             return
         agent_ids = _distinct_agent_ids(store) or ["default"]
         for agent_id in agent_ids:

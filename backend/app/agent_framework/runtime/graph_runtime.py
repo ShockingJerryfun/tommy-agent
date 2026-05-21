@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 from .checkpointing import build_thread_config
+
+logger = logging.getLogger(__name__)
 
 
 class GraphRuntime:
@@ -16,8 +19,8 @@ class GraphRuntime:
         graph = await self._get_graph()
         try:
             await graph.checkpointer.adelete_thread(session_id)
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001 - reset should not block the next run.
+            logger.warning("Unable to reset checkpoint thread for session %s: %s", session_id, exc)
 
     async def stream(self, session_id: str, inputs: dict[str, Any]) -> AsyncIterator[Any]:
         graph = await self._get_graph()

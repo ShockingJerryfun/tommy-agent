@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from .forge import SkillForge, SkillForgeOutcome, get_default_skill_forge
 
 
@@ -43,9 +41,7 @@ def run_nightly(
     # consult the per-skill metadata for any seeded sample outcomes,
     # falling back to an empty list so the row is left explicitly
     # un-validated.
-    shadow_skills = forge._store.skill_catalog.list_skills(  # noqa: SLF001 - internal
-        agent_id=agent_id, status="shadow"
-    )
+    shadow_skills = forge.list_skills(agent_id=agent_id, status="shadow")
     for skill in shadow_skills:
         sample_outcomes = (skill.get("metadata") or {}).get("sample_outcomes")
         forge.shadow_validate(
@@ -57,9 +53,7 @@ def run_nightly(
     # Auto-retire any active skill whose live metrics have decayed below
     # the threshold. We touch only invocation_count >= auto_retire_min_samples
     # so we don't punish freshly promoted skills.
-    active_skills = forge._store.skill_catalog.list_skills(  # noqa: SLF001
-        agent_id=agent_id, status="active"
-    )
+    active_skills = forge.list_skills(agent_id=agent_id, status="active")
     for skill in active_skills:
         invocations = int(skill.get("invocation_count") or 0)
         successes = int(skill.get("success_count") or 0)
@@ -92,9 +86,4 @@ def _summary(outcome: SkillForgeOutcome) -> str:
         parts.append(f"retired={len(outcome.retired_skill_ids)}")
     return ", ".join(parts) or "noop"
 
-
 __all__ = ["run_nightly"]
-
-
-def _ignore() -> Any:  # pragma: no cover - quiet import-only static checkers
-    return None

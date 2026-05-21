@@ -26,9 +26,12 @@ trail is complete.
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # Lightweight, deterministic patterns that mark a message as "memorable".
 # S3+ will replace this with the reflector LLM node; the patterns here are
@@ -133,8 +136,8 @@ def reflect_messages(
                     store.memories.update_embedding(
                         proposal["id"], embedding=vec, model=embedder.model
                     )
-            except Exception:  # noqa: BLE001 — audit only
-                pass
+            except Exception as exc:  # noqa: BLE001 — audit only
+                logger.debug("Unable to embed reflected memory %s: %s", proposal.get("id"), exc)
         proposals.append(proposal)
 
     if record_audit:
@@ -151,8 +154,8 @@ def reflect_messages(
                 ),
                 metadata={"snippets": candidates},
             )
-        except Exception:  # noqa: BLE001 — audit only
-            pass
+        except Exception as exc:  # noqa: BLE001 — audit only
+            logger.warning("Unable to record reflect memory audit: %s", exc)
 
     return ReflectorOutput(
         proposals=proposals,
@@ -210,8 +213,8 @@ def consolidate(
                 summary=f"Merged {len(merged)} duplicate(s).",
                 metadata={"merged": [{"kept": k, "dropped": d} for k, d in merged]},
             )
-        except Exception:  # noqa: BLE001 - audit only
-            pass
+        except Exception as exc:  # noqa: BLE001 - audit only
+            logger.warning("Unable to record consolidate memory audit: %s", exc)
 
     return ConsolidationOutput(
         merged=merged,
@@ -267,8 +270,8 @@ def apply_forgetting(
                     "importance_floor": importance_floor,
                 },
             )
-        except Exception:  # noqa: BLE001 - audit only
-            pass
+        except Exception as exc:  # noqa: BLE001 - audit only
+            logger.warning("Unable to record forget memory audit: %s", exc)
 
     return ForgetterOutput(decayed=decayed, forgotten=forgotten, scanned=scanned)
 
@@ -323,6 +326,6 @@ def flush_for_compaction(
                 "proposal_ids": [item["id"] for item in output.proposals],
             },
         )
-    except Exception:  # noqa: BLE001 - audit only
-        pass
+    except Exception as exc:  # noqa: BLE001 - audit only
+        logger.warning("Unable to record pre-compaction memory flush audit: %s", exc)
     return output

@@ -12,6 +12,7 @@ Implementation details live under `prompt_context/`.
 from __future__ import annotations
 
 import hashlib
+import logging
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
@@ -35,6 +36,8 @@ from .types import (
     RenderedContext,
     Section,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ContextBuilder:
@@ -163,13 +166,15 @@ class ContextBuilder:
                 metadata=snapshot_metadata,
                 injections=injections,
             )
-        except Exception:  # noqa: BLE001 - audit persistence must not break a turn.
+        except Exception as exc:  # noqa: BLE001 - audit persistence must not break a turn.
+            logger.warning("Unable to persist prompt snapshot for session %s: %s", session_id, exc)
             return None
 
     def _resolve_memory_provider(self) -> Any | None:
         try:
             return self.memory_provider
-        except Exception:  # noqa: BLE001 - context assembly falls back to text search.
+        except Exception as exc:  # noqa: BLE001 - context assembly falls back to text search.
+            logger.debug("Unable to initialize memory provider for prompt context: %s", exc)
             return None
 
     def _resolve_max_chars(self, request: ContextBuildRequest, metadata: dict[str, Any]) -> int:

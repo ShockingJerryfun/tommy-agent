@@ -18,6 +18,7 @@ them so that:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from dataclasses import dataclass
@@ -28,6 +29,8 @@ from pydantic import BaseModel, ValidationError
 from .catalog import RUNTIME_TOOL_CONTEXT, ToolRegistry
 from .permissions import PermissionDecision, PermissionPolicy, default_permission_policy
 from .result import ArtifactRef, ToolError, ToolResult
+
+logger = logging.getLogger(__name__)
 
 
 def _env_int(name: str, default: int) -> int:
@@ -364,8 +367,13 @@ class ToolRuntime:
                 args=args,
                 result=result.content,
             )
-        except Exception:  # noqa: BLE001 — persistence failures must not break the turn.
-            pass
+        except Exception as exc:  # noqa: BLE001 — persistence failures must not break the turn.
+            logger.warning(
+                "Unable to persist tool call %s for session %s: %s",
+                name,
+                session_id,
+                exc,
+            )
 
 
 def make_tool_runtime(

@@ -139,6 +139,18 @@ class SkillCatalogRepo:
             ).fetchone()
         return _hydrate_skill_row(row) if row is not None else None
 
+    def set_version(self, skill_id: str, version_id: str) -> dict[str, Any] | None:
+        now = utc_now()
+        with self._connector.connect() as conn:
+            row = conn.execute(
+                f"""
+                UPDATE skills SET version_id = ?, updated_at = ? WHERE id = ?
+                RETURNING {self.SELECT_COLUMNS}
+                """,
+                (version_id, now, skill_id),
+            ).fetchone()
+        return _hydrate_skill_row(row) if row is not None else None
+
     def update_metrics(
         self,
         skill_id: str,

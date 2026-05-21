@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from ..state import AgentState
+
+logger = logging.getLogger(__name__)
 
 
 def last_user_message(state: AgentState) -> str:
@@ -60,6 +63,6 @@ def recall_memories(
                 }
                 for candidate in candidates
             ]
-        except Exception:  # noqa: BLE001 - prompt assembly falls back to text search.
-            pass
+        except Exception as exc:  # noqa: BLE001 - prompt assembly falls back to text search.
+            logger.debug("Memory provider recall failed; falling back to text search: %s", exc)
     return store.search_memories(agent_id=agent_id, query=query, limit=top_k)

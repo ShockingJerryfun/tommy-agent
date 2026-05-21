@@ -3,6 +3,7 @@ package shell
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 func TestRunCapturesOutputAndMarksGoRunner(t *testing.T) {
@@ -39,5 +40,23 @@ func TestRunTruncatesLargeOutput(t *testing.T) {
 	}
 	if !resp.Truncated {
 		t.Fatal("expected truncated output")
+	}
+}
+
+func TestRunTimesOutLongRunningCommand(t *testing.T) {
+	started := time.Now()
+	resp := Run(context.Background(), Request{
+		Command:        "sleep 5",
+		Cwd:            ".",
+		Shell:          "/bin/sh",
+		TimeoutSeconds: 1,
+		MaxOutputChars: 1000,
+	})
+
+	if !resp.TimedOut {
+		t.Fatalf("timed out = false, response = %+v", resp)
+	}
+	if elapsed := time.Since(started); elapsed > 3*time.Second {
+		t.Fatalf("timeout took %s, want under 3s", elapsed)
 	}
 }

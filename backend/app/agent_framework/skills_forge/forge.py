@@ -146,6 +146,9 @@ class SkillForge:
         )
         return mined
 
+    def list_skills(self, *, agent_id: str, status: str, limit: int = 100) -> list[dict[str, Any]]:
+        return self._store.skill_catalog.list_skills(agent_id=agent_id, status=status, limit=limit)
+
     # ------------------------------------------------------------------
     # 2. propose
     # ------------------------------------------------------------------
@@ -326,12 +329,7 @@ class SkillForge:
         promoted = self._store.skill_catalog.set_status(skill_id, "active")
         version_id = proposal.get("version_id")
         if promoted is not None and version_id and not promoted.get("version_id"):
-            with self._store._connector.connect() as conn:  # noqa: SLF001
-                conn.execute(
-                    "UPDATE skills SET version_id = ? WHERE id = ?",
-                    (version_id, skill_id),
-                )
-            promoted = self._store.skill_catalog.get(skill_id)
+            promoted = self._store.skill_catalog.set_version(skill_id, str(version_id))
 
         self._store.skill_forge_runs.append(
             agent_id=skill["agent_id"],

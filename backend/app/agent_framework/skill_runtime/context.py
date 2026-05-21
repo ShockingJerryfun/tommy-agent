@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -8,6 +9,8 @@ from ..skills_forge.activator import get_default_skill_activator
 from .indexer import SkillIndexer
 from .loader import SkillLoader
 from .resolver import SkillResolver
+
+logger = logging.getLogger(__name__)
 
 
 class SkillContextAssembler:
@@ -97,14 +100,16 @@ class SkillContextAssembler:
             return self._activator
         try:
             return get_default_skill_activator(self._store)
-        except Exception:  # noqa: BLE001 - lexical skill matching remains available.
+        except Exception as exc:  # noqa: BLE001 - lexical skill matching remains available.
+            logger.debug("Unable to initialize default skill activator: %s", exc)
             return None
 
     def _list_active_skill_rows(self, agent_id: str) -> list[dict[str, Any]]:
         try:
             catalog = self._store.skill_catalog
             rows = catalog.list_skills(agent_id=agent_id, status="active", limit=100)
-        except Exception:  # noqa: BLE001 - skill catalog issues should not break context.
+        except Exception as exc:  # noqa: BLE001 - skill catalog issues should not break context.
+            logger.warning("Unable to list active skill rows for agent %s: %s", agent_id, exc)
             return []
         return [dict(row) for row in rows]
 
@@ -118,7 +123,8 @@ class SkillContextAssembler:
         for attr in ("tool_registry", "registry"):
             try:
                 registry = getattr(self._store, attr, None)
-            except Exception:  # noqa: BLE001 - broken injected inventory means unknown.
+            except Exception as exc:  # noqa: BLE001 - broken injected inventory means unknown.
+                logger.debug("Unable to read tool inventory attribute %s: %s", attr, exc)
                 return None
             names = _tool_names_from_registry(registry)
             if registry is not None:
@@ -205,5 +211,6 @@ def _tool_names_from_registry(registry: Any | None) -> set[str] | None:
             for tool in tools
             if (name := getattr(tool, "name", None)) is not None and str(name)
         }
-    except Exception:  # noqa: BLE001 - keep diagnostics disabled when inventory cannot be read.
+    except Exception as exc:  # noqa: BLE001 - keep diagnostics disabled when inventory cannot be read.
+        logger.debug("Unable to read tool names from registry: %s", exc)
         return None
