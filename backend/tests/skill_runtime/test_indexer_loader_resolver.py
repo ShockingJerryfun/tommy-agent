@@ -287,6 +287,13 @@ class _FakeActivator:
         return self.rows
 
 
+class _FailingActivator:
+    embedder = None
+
+    def recall(self, **kwargs):
+        raise RuntimeError("embedding provider unavailable")
+
+
 def test_resolver_selects_active_skills_with_mentions_keywords_semantic_and_metrics():
     rows = [
         {
@@ -638,6 +645,36 @@ This body appears only when semantic recall selects the skill.
     assert result["activation"]["selected"][0]["relative_path"] == "semantic/SKILL.md"
     assert result["activation"]["selected"][0]["reason_codes"] == ["semantic_match"]
     assert "This body appears only when semantic recall selects" in result["selected_markdown"]
+
+
+def test_context_assembler_degrades_when_semantic_activator_fails(tmp_path):
+    _write_skill(
+        tmp_path,
+        "browser/SKILL.md",
+        """---
+name: browser
+description: Inspect localhost pages.
+---
+
+# Browser
+""",
+    )
+    store = _FakeStore()
+
+    result = SkillContextAssembler(
+        store=store,
+        activator=_FailingActivator(),
+    ).build(agent_id="agent-1", query="inspect localhost", skills_root=tmp_path)
+
+    assert result["selected_markdown"] == ""
+    assert result["activation"]["selected"] == []
+    assert result["activation"]["diagnostics"] == [
+        {
+            "path": "",
+            "severity": "warning",
+            "message": "skill activation failed: embedding provider unavailable",
+        }
+    ]
 
 
 def test_context_assembler_passes_known_tool_inventory_without_false_missing(tmp_path):

@@ -9,6 +9,7 @@ from ..skills_forge.activator import get_default_skill_activator
 from .indexer import SkillIndexer
 from .loader import SkillLoader
 from .resolver import SkillResolver
+from .types import SkillResolution
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,18 @@ class SkillContextAssembler:
             activator=activator,
             available_tools=self._resolve_available_tools(),
         )
-        resolution = resolver.resolve(query, agent_id=agent_id)
+        try:
+            resolution = resolver.resolve(query, agent_id=agent_id)
+        except Exception as exc:  # noqa: BLE001 - skill activation must not break a turn.
+            logger.warning("Skill activation failed for agent %s: %s", agent_id, exc)
+            diagnostics.append(
+                {
+                    "path": "",
+                    "severity": "warning",
+                    "message": f"skill activation failed: {exc}",
+                }
+            )
+            resolution = SkillResolution(selected=[])
         load_result = SkillLoader(root).load_selected(resolution.selected, char_budget=3600)
         diagnostics.extend(resolution.diagnostics)
         diagnostics.extend(load_result.diagnostics)
