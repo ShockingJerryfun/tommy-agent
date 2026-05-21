@@ -162,9 +162,6 @@ function resolveApiBase() {
 function resolveStreamApiBase() {
   if (STREAM_API_BASE_OVERRIDE)
     return STREAM_API_BASE_OVERRIDE.replace(/\/$/, "");
-  if (typeof window !== "undefined") {
-    return `${window.location.protocol}//${window.location.hostname}:8000`;
-  }
   return resolveApiBase();
 }
 
@@ -1466,11 +1463,11 @@ export function AgentShell() {
 
   async function persistedAssistantMessageId(message: ChatMessage) {
     if (message.id.startsWith("msg-")) return message.id;
-    if (!message.runId) return message.id;
+    if (!message.runId) return null;
     const existing = await apiJson<{ run: ApiRun }>(
       `/api/runs/${message.runId}`,
     );
-    return existing.run.assistant_message_id || message.id;
+    return existing.run.assistant_message_id || null;
   }
 
   function clearAssistantStreamError(messageId: string) {
@@ -2521,6 +2518,16 @@ export function AgentShell() {
       const assistantMessageId = await persistedAssistantMessageId(
         current[lastAssistantIndex],
       );
+      if (!assistantMessageId) {
+        await streamMessage({
+          message: lastUser.content,
+          attachments: lastUser.attachments ?? [],
+          nextMessages,
+          history: current.slice(0, lastUserIndex),
+          idempotencyKey,
+        });
+        return;
+      }
       const run = await apiJson<ApiRun>(
         `/api/messages/${assistantMessageId}/regenerate`,
         {
@@ -2591,12 +2598,32 @@ export function AgentShell() {
           }
         : item,
     );
-    messagesRef.current = nextMessages;
-    setMessages(nextMessages);
-    setIsStreaming(true);
 
     try {
       const assistantMessageId = await persistedAssistantMessageId(message);
+      if (!assistantMessageId) {
+        const userIndex = current
+          .slice(0, assistantIndex)
+          .map((item, index) => ({ item, index }))
+          .reverse()
+          .find((entry) => entry.item.role === "user")?.index;
+        const userMessage =
+          userIndex === undefined ? undefined : current[userIndex];
+        if (!userMessage || userMessage.role !== "user") {
+          throw new Error("No user message available for retry");
+        }
+        await streamMessage({
+          message: userMessage.content,
+          attachments: userMessage.attachments ?? [],
+          nextMessages,
+          history: current.slice(0, userIndex),
+          idempotencyKey: message.idempotencyKey,
+        });
+        return;
+      }
+      messagesRef.current = nextMessages;
+      setMessages(nextMessages);
+      setIsStreaming(true);
       const run = await apiJson<ApiRun>(
         `/api/messages/${assistantMessageId}/regenerate`,
         {
