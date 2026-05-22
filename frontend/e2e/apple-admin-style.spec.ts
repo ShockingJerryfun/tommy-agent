@@ -122,11 +122,13 @@ test("mobile navigation aligns with desktop controls without oversized buttons",
   await page.goto("/");
 
   const menuButton = page.getByRole("button", { name: "打开对话列表" });
+  const leftHeaderCluster = page.locator(".mobile-style-header > *").first();
   await expect(menuButton).toBeVisible();
   await expect(page.getByRole("button", { name: "新建对话" })).toBeVisible();
   await expect(page.getByRole("button", { name: "设置", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "打开状态和设置" })).toBeVisible();
-  await expect(page.getByRole("img", { name: "Tommy" }).first()).toBeVisible();
+  await expect(leftHeaderCluster.getByRole("img", { name: "Tommy" })).toHaveCount(0);
+  await expect(leftHeaderCluster.getByText(/Tommy/)).toHaveCount(0);
 
   await page.getByRole("button", { name: "新建对话" }).click();
   await expect(page.getByText("工具调用", { exact: true })).toBeVisible();
