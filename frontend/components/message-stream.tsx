@@ -168,7 +168,7 @@ export function MessageStream({
   );
 
   return (
-    <main className="app-chat-surface mobile-chatgpt-surface flex min-h-0 flex-1 flex-col overflow-hidden">
+    <main className="app-chat-surface flex min-h-0 flex-1 flex-col overflow-hidden">
       {/* ── Header ── */}
       <div className="admin-toolbar mx-3 mt-3 hidden items-center justify-between px-5 py-3 md:flex">
         <div>
@@ -192,12 +192,12 @@ export function MessageStream({
         aria-live="polite"
         aria-relevant="additions"
         onScroll={handleScroll}
-        className="scrollbar-thin relative min-h-0 flex-1 overflow-y-auto px-5 pb-52 pt-32 sm:px-6 md:pb-6 md:pt-6"
+        className="scrollbar-thin relative min-h-0 flex-1 overflow-y-auto px-4 pb-56 pt-28 sm:px-6 md:pb-6 md:pt-6"
       >
         {messages.length === 0 ? (
           <EmptyState />
         ) : (
-          <div className="space-y-5 md:space-y-4">
+          <div className="space-y-3.5 md:space-y-4">
             {messages.map((message, idx) => (
               <MessageBubble
                 key={message.id}
@@ -328,7 +328,7 @@ function EmptyState() {
       </div>
 
       {/* Capability cards */}
-      <div className="hidden w-full max-w-md grid-cols-2 gap-2 md:grid">
+      <div className="grid w-full max-w-md grid-cols-2 gap-2">
         {capabilities.map(({ icon: Icon, label, desc }) => (
           <div
             key={label}
@@ -442,7 +442,7 @@ const MessageBubble = memo(function MessageBubble({
         className="group flex flex-col items-end gap-1 animate-fade-slide-up"
       >
         <div
-          className="mobile-chatgpt-user-bubble max-w-[86%] rounded-[1.35rem] rounded-tr-md text-[15px] leading-[var(--prose-line-height)] text-slate-900 sm:max-w-[72%] md:rounded-bubble md:text-[14px] dark:text-slate-100"
+          className="ios-glass-field max-w-[86%] rounded-[1.35rem] rounded-tr-md text-[15px] leading-[var(--prose-line-height)] text-slate-800 sm:max-w-[72%] md:rounded-bubble md:text-[14px] dark:text-slate-100"
           style={{
             padding: "var(--message-padding)",
           }}
@@ -513,20 +513,14 @@ const MessageBubble = memo(function MessageBubble({
   return (
     <div
       id={`message-${message.id}`}
-      className="group flex gap-3 animate-fade-slide-up md:gap-3"
+      className="group flex gap-3 animate-fade-slide-up"
     >
       {/* Avatar */}
-      <div className="hidden md:block">
-        <AvatarImage
-          src={tommyAvatarUrl || "/tommy-avatar.png"}
-          fallback="T"
-          label="Tommy"
-        />
-      </div>
+      <AvatarImage src={tommyAvatarUrl || "/tommy-avatar.png"} fallback="T" label="Tommy" />
 
       {/* Content */}
       <div
-        className="mobile-chatgpt-assistant-copy min-w-0 flex-1 text-[17px] leading-[1.58] md:text-[14px] md:leading-[var(--prose-line-height)]"
+        className="min-w-0 flex-1 text-[15px] leading-[var(--prose-line-height)] md:text-[14px]"
         style={{
           padding: "var(--message-padding)",
         }}

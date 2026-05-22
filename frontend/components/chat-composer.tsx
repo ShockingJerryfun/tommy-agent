@@ -8,7 +8,6 @@ import {
   FileType,
   Loader2,
   Paperclip,
-  Plus,
   Slash,
   Square,
   X,
@@ -22,7 +21,6 @@ type ChatComposerProps = {
   value: string;
   disabled: boolean;
   isStreaming: boolean;
-  commandScope: "restricted" | "unrestricted";
   onChange: (value: string) => void;
   pendingAttachments: ComposerAttachment[];
   onAddAttachments: (files: File[]) => void | Promise<void>;
@@ -155,7 +153,6 @@ export function ChatComposer({
   value,
   disabled,
   isStreaming,
-  commandScope,
   onChange,
   pendingAttachments,
   onAddAttachments,
@@ -176,10 +173,6 @@ export function ChatComposer({
     !inputDisabled &&
     !hasUploadInFlight &&
     (value.trim().length > 0 || pendingAttachments.length > 0);
-  const accessLabel =
-    commandScope === "unrestricted"
-      ? t("composer.fullAccess")
-      : t("composer.restrictedAccess");
   const [prompts, setPrompts] = useState<PromptItem[]>([]);
   const [cursor, setCursor] = useState(0);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -391,7 +384,7 @@ export function ChatComposer({
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      className="relative flex-shrink-0 bg-transparent px-4 pb-[calc(env(safe-area-inset-bottom)+var(--keyboard-offset,0px)+1.35rem)] pt-2 md:p-0"
+      className="mobile-style-composer-shell relative flex-shrink-0 bg-transparent px-4 pb-[calc(env(safe-area-inset-bottom)+var(--keyboard-offset,0px)+1.25rem)] pt-2 md:p-0"
     >
       {paletteOpen && trigger && (
         <PromptPalette
@@ -403,7 +396,7 @@ export function ChatComposer({
           onSelect={(prompt) => insertPrompt(prompt, trigger)}
         />
       )}
-      <div className="ios-composer-surface mobile-chatgpt-composer relative overflow-hidden transition-[box-shadow,transform] duration-200 focus-within:-translate-y-0.5 md:focus-within:translate-y-0">
+      <div className="ios-composer-surface mobile-style-composer relative overflow-hidden transition-[box-shadow,transform] duration-200 focus-within:-translate-y-0.5 md:focus-within:translate-y-0">
         {isDragging && (
           <div className="absolute inset-0 z-20 flex items-center justify-center bg-[var(--primary-color-light)] text-[15px] font-semibold text-slate-800 shadow-[inset_0_0_0_3px_rgba(34,34,34,0.08)] dark:bg-white/[0.06] dark:text-slate-100">
             {t("composer.drop")}
@@ -416,7 +409,7 @@ export function ChatComposer({
           />
         )}
         {/* Input row */}
-        <div className="flex flex-col gap-3 px-4 pb-3 pt-4 md:flex-row md:items-end md:gap-2 md:px-4 md:pb-3 md:pt-4">
+        <div className="mobile-style-composer-row flex items-end gap-2 px-3.5 pb-2.5 pt-3 md:px-4 md:pb-3 md:pt-4">
           <label className="sr-only" htmlFor="agent-message">
             {t("composer.label")}
           </label>
@@ -440,7 +433,7 @@ export function ChatComposer({
             onPaste={handlePaste}
             onSelect={updateCursorFromTextarea}
             placeholder={t("composer.placeholder")}
-            className="min-h-8 w-full flex-1 resize-none bg-transparent py-0 text-[18px] leading-6 outline-none placeholder:text-slate-400/80 disabled:cursor-not-allowed disabled:opacity-50 md:py-1.5 md:text-[15px] dark:placeholder:text-slate-600"
+            className="flex-1 resize-none bg-transparent py-1.5 text-[16px] leading-6 outline-none placeholder:text-slate-400/80 disabled:cursor-not-allowed disabled:opacity-50 md:text-[15px] dark:placeholder:text-slate-600"
             style={{ minHeight: "28px", maxHeight: "200px" }}
           />
           <input
@@ -451,59 +444,43 @@ export function ChatComposer({
             className="hidden"
             onChange={handleFileInputChange}
           />
-          <div className="flex items-center justify-between gap-3 md:contents">
-            <div className="flex min-w-0 items-center gap-2">
-              <button
-                type="button"
-                disabled={inputDisabled}
-                aria-label={t("composer.addAttachment")}
-                onClick={() => fileInputRef.current?.click()}
-                className="control-glass soft-focus-ring flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-slate-950 transition-all duration-200 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-40 md:mb-0.5 dark:text-slate-200 dark:hover:text-slate-100"
-              >
-                <Plus className="h-5 w-5 md:hidden" strokeWidth={2.2} />
-                <Paperclip
-                  className="hidden h-4 w-4 md:block"
-                  strokeWidth={2.2}
-                />
-              </button>
-              <span className="mobile-chatgpt-access-badge inline-flex min-w-0 items-center gap-1.5 truncate text-[13px] font-semibold md:hidden">
-                {accessLabel}
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="mobile-chatgpt-model-label text-[14px] font-semibold md:hidden">
-                {t("composer.mobileModel")}
-              </span>
-              <button
-                type={isStreaming ? "button" : "submit"}
-                disabled={isStreaming ? false : !canSubmit}
-                aria-label={isStreaming ? t("composer.stop") : t("composer.send")}
-                onClick={isStreaming ? onStop : undefined}
-                className={`
-                  flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full md:mb-0.5 md:rounded-control
-                  transition-all duration-200
-                  soft-focus-ring
-                  ${
-                    isStreaming
-                      ? "bg-red-500 text-white shadow-sm hover:bg-red-600 focus-visible:ring-red-400/50"
-                      : canSubmit
-                        ? "premium-action"
-                        : "cursor-not-allowed bg-slate-200/90 text-slate-400 dark:bg-white/10 dark:text-slate-600"
-                  }
-                `}
-              >
-                {isStreaming ? (
-                  <Square
-                    className="h-3.5 w-3.5"
-                    fill="currentColor"
-                    strokeWidth={2.4}
-                  />
-                ) : (
-                  <ArrowUp className="h-4 w-4" strokeWidth={2.5} />
-                )}
-              </button>
-            </div>
-          </div>
+          <button
+            type="button"
+            disabled={inputDisabled}
+            aria-label={t("composer.addAttachment")}
+            onClick={() => fileInputRef.current?.click()}
+            className="control-glass soft-focus-ring mb-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-slate-500 transition-all duration-200 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-40 dark:text-slate-400 dark:hover:text-slate-100"
+          >
+            <Paperclip className="h-4 w-4" strokeWidth={2.2} />
+          </button>
+          <button
+            type={isStreaming ? "button" : "submit"}
+            disabled={isStreaming ? false : !canSubmit}
+            aria-label={isStreaming ? t("composer.stop") : t("composer.send")}
+            onClick={isStreaming ? onStop : undefined}
+            className={`
+              mb-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full md:rounded-control
+              transition-all duration-200
+              soft-focus-ring
+              ${
+                isStreaming
+                  ? "bg-red-500 text-white shadow-sm hover:bg-red-600 focus-visible:ring-red-400/50"
+                  : canSubmit
+                    ? "premium-action"
+                    : "cursor-not-allowed bg-slate-200/90 text-slate-400 dark:bg-white/10 dark:text-slate-600"
+              }
+            `}
+          >
+            {isStreaming ? (
+              <Square
+                className="h-3.5 w-3.5"
+                fill="currentColor"
+                strokeWidth={2.4}
+              />
+            ) : (
+              <ArrowUp className="h-4 w-4" strokeWidth={2.5} />
+            )}
+          </button>
         </div>
 
       </div>

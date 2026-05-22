@@ -124,8 +124,12 @@ test("mobile navigation aligns with desktop controls without oversized buttons",
   const menuButton = page.getByRole("button", { name: "打开对话列表" });
   await expect(menuButton).toBeVisible();
   await expect(page.getByRole("button", { name: "新建对话" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "设置", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "打开状态和设置" })).toBeVisible();
-  await expect(page.getByText(/Tommy|Session/).first()).toBeVisible();
+  await expect(page.getByRole("img", { name: "Tommy" }).first()).toBeVisible();
+
+  await page.getByRole("button", { name: "新建对话" }).click();
+  await expect(page.getByText("工具调用", { exact: true })).toBeVisible();
 
   const style = await menuButton.evaluate((element) => {
     const rect = element.getBoundingClientRect();
@@ -140,12 +144,17 @@ test("mobile navigation aligns with desktop controls without oversized buttons",
     };
   });
 
-  expect(style.width).toBeGreaterThanOrEqual(52);
-  expect(style.height).toBeGreaterThanOrEqual(52);
+  expect(style.width).toBeLessThanOrEqual(48);
+  expect(style.height).toBeLessThanOrEqual(48);
+  expect(style.width).toBeGreaterThanOrEqual(40);
+  expect(style.height).toBeGreaterThanOrEqual(40);
   expect(style.backgroundColor).toContain("rgba(255, 255, 255");
   expect(style.backdropFilter).toContain("blur(");
-  expect(Number.parseInt(style.borderRadius, 10)).toBeGreaterThanOrEqual(24);
-  expect(style.boxShadow).toContain("rgba(0, 0, 0");
+  expect(Number.parseInt(style.borderRadius, 10)).toBeGreaterThanOrEqual(20);
+  expect(style.boxShadow).toContain("rgba(15, 23, 42");
+
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await expect(page.getByRole("link", { name: "系统设计图" })).toBeVisible();
 });
 
 test("mobile drawer and inspector sheet use white card surfaces", async ({
