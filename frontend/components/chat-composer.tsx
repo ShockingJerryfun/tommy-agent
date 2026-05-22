@@ -384,7 +384,7 @@ export function ChatComposer({
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      className="mobile-style-composer-shell relative flex-shrink-0 bg-transparent px-4 pb-[calc(env(safe-area-inset-bottom)+var(--keyboard-offset,0px)+1.25rem)] pt-2 md:p-0"
+      className="relative flex-shrink-0 bg-transparent px-4 pb-[calc(env(safe-area-inset-bottom)+var(--keyboard-offset,0px)+1.25rem)] pt-2 md:p-0"
     >
       {paletteOpen && trigger && (
         <PromptPalette
@@ -396,7 +396,7 @@ export function ChatComposer({
           onSelect={(prompt) => insertPrompt(prompt, trigger)}
         />
       )}
-      <div className="ios-composer-surface mobile-style-composer relative overflow-hidden transition-[box-shadow,transform] duration-200 focus-within:-translate-y-0.5 md:focus-within:translate-y-0">
+      <div className="ios-composer-surface relative overflow-hidden transition-[box-shadow,transform] duration-200 focus-within:-translate-y-0.5 md:focus-within:translate-y-0">
         {isDragging && (
           <div className="absolute inset-0 z-20 flex items-center justify-center bg-[var(--primary-color-light)] text-[15px] font-semibold text-slate-800 shadow-[inset_0_0_0_3px_rgba(34,34,34,0.08)] dark:bg-white/[0.06] dark:text-slate-100">
             {t("composer.drop")}
@@ -409,7 +409,7 @@ export function ChatComposer({
           />
         )}
         {/* Input row */}
-        <div className="mobile-style-composer-row flex items-end gap-2 px-3.5 pb-2.5 pt-3 md:px-4 md:pb-3 md:pt-4">
+        <div className="flex items-end gap-2 px-3.5 pb-2.5 pt-3 md:px-4 md:pb-3 md:pt-4">
           <label className="sr-only" htmlFor="agent-message">
             {t("composer.label")}
           </label>

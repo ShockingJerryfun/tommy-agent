@@ -12,8 +12,20 @@ test("composer is streamlined and enter sends", async ({ page }, testInfo) => {
   const composerSurface = page.locator(".ios-composer-surface").first();
   await expect(composerSurface).toBeVisible();
   if (testInfo.project.name === "mobile-iphone-12") {
-    const composerBox = await composerSurface.boundingBox();
-    expect(composerBox?.height ?? 0).toBeGreaterThanOrEqual(110);
+    const style = await composerSurface.evaluate((element) => {
+      const computed = getComputedStyle(element);
+      return {
+        backgroundColor: computed.backgroundColor,
+        backdropFilter: computed.backdropFilter,
+        borderStyle: computed.borderStyle,
+        boxShadow: computed.boxShadow,
+      };
+    });
+
+    expect(style.backgroundColor).toBe("rgba(255, 255, 255, 0.82)");
+    expect(style.backdropFilter).toContain("blur(24px)");
+    expect(style.borderStyle).toBe("none");
+    expect(style.boxShadow).toContain("rgba(15, 23, 42, 0.11)");
   }
 
   await composer.fill("Enter should send");

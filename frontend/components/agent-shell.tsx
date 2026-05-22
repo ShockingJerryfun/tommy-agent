@@ -2646,7 +2646,7 @@ export function AgentShell() {
   }
 
   return (
-    <div className="mobile-style-chatgpt-page h-[100dvh] overflow-hidden bg-transparent md:min-h-screen md:p-5">
+    <div className="h-[100dvh] overflow-hidden bg-transparent md:min-h-screen md:p-5">
       <div className="mx-auto flex h-full w-full max-w-[100rem] flex-col md:grid md:h-[calc(100dvh-2.5rem)] md:grid-cols-1 md:gap-4 lg:grid-cols-[15rem_minmax(0,1fr)] xl:grid-cols-[15rem_minmax(0,1fr)_20rem] 2xl:grid-cols-[16rem_minmax(0,1fr)_21rem]">
         {/* Mobile-only header */}
         <SessionMobileHeader
