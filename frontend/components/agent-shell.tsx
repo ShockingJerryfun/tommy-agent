@@ -16,7 +16,6 @@ import {
   Plus,
   Search,
   Settings2,
-  SlidersHorizontal,
   Trash2,
   X,
 } from "lucide-react";
@@ -2648,21 +2647,16 @@ export function AgentShell() {
   const activeSession = sessions.find((session) => session.id === sessionId);
 
   return (
-    <div className="h-[100dvh] overflow-hidden bg-transparent md:min-h-screen md:p-5">
+    <div className="mobile-chatgpt-page h-[100dvh] overflow-hidden md:min-h-screen md:bg-transparent md:p-5">
       <div className="mx-auto flex h-full w-full max-w-[100rem] flex-col md:grid md:h-[calc(100dvh-2.5rem)] md:grid-cols-1 md:gap-4 lg:grid-cols-[15rem_minmax(0,1fr)] xl:grid-cols-[15rem_minmax(0,1fr)_20rem] 2xl:grid-cols-[16rem_minmax(0,1fr)_21rem]">
         {/* Mobile-only header */}
         <SessionMobileHeader
           sessionId={sessionId}
           title={activeSession?.title}
           isStreaming={isStreaming}
-          settings={settings}
-          settingsOpen={settingsOpen}
-          tommyAvatarUrl={settings.tommyAvatarUrl}
           onNewSession={resetSession}
           onOpenSessions={() => setMobileSessionsOpen(true)}
           onOpenInspector={() => setMobileInspectorOpen(true)}
-          onToggleSettings={() => setSettingsOpen((value) => !value)}
-          onSettingsChange={updateSettings}
         />
 
         <MobileSessionDrawer
@@ -2754,6 +2748,7 @@ export function AgentShell() {
             value={input}
             disabled={isStreaming}
             isStreaming={isStreaming}
+            commandScope={settings.commandScope}
             pendingAttachments={pendingAttachments}
             onChange={setInput}
             onAddAttachments={addAttachments}
@@ -2865,91 +2860,56 @@ function SessionMobileHeader({
   sessionId,
   title,
   isStreaming,
-  settings,
-  settingsOpen,
-  tommyAvatarUrl,
   onNewSession,
   onOpenSessions,
   onOpenInspector,
-  onToggleSettings,
-  onSettingsChange,
 }: {
   sessionId: string;
   title?: string;
   isStreaming: boolean;
-  settings: AgentSettings;
-  settingsOpen: boolean;
-  tommyAvatarUrl: string;
   onNewSession: () => void;
   onOpenSessions: () => void;
   onOpenInspector: () => void;
-  onToggleSettings: () => void;
-  onSettingsChange: (settings: AgentSettings) => void;
 }) {
   const { t } = useI18n();
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-start justify-between gap-2 px-3 pt-[max(0.6rem,env(safe-area-inset-top)+0.6rem)] lg:hidden">
-      <div className="pointer-events-auto ios-glass-pill flex min-w-0 flex-1 items-center gap-2 px-2.5 py-1.5">
-        <button
-          type="button"
-          onClick={onOpenSessions}
-          className="ios-glass-pill soft-focus-ring flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-slate-700 transition active:scale-95 dark:text-slate-200"
-          aria-label={t("app.a11y.openSessions")}
-        >
-          <Menu className="h-4 w-4" strokeWidth={2.2} />
-        </button>
-        <img
-          src={tommyAvatarUrl || "/tommy-avatar.png"}
-          alt="Tommy"
-          className="h-8 w-8 flex-shrink-0 rounded-full object-cover shadow-sm"
-        />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[13px] font-semibold tracking-tight text-slate-700 dark:text-slate-200">
-            {isStreaming ? (
-              <span className="flex items-center gap-2">
-                <span className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--primary-color)] opacity-60" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-[var(--primary-color)]" />
-                </span>
-                {t("app.top.thinking")}
-              </span>
-            ) : (
-              title || "Tommy"
-            )}
-          </p>
-          <p className="truncate text-[10px] font-medium text-slate-400 dark:text-slate-500">
-            {sessionId ? `Session ${sessionId.slice(-6)}` : "Tommy Agent"}
-          </p>
-        </div>
+    <div className="mobile-chatgpt-header pointer-events-none absolute inset-x-0 top-0 z-30 grid grid-cols-[3.5rem_minmax(0,1fr)_8.75rem] items-start gap-2 px-4 pt-[max(0.75rem,env(safe-area-inset-top)+0.55rem)] lg:hidden">
+      <button
+        type="button"
+        onClick={onOpenSessions}
+        className="mobile-chatgpt-header-button pointer-events-auto flex h-14 w-14 items-center justify-center rounded-full text-slate-950 transition active:scale-95 dark:text-slate-100"
+        aria-label={t("app.a11y.openSessions")}
+      >
+        <Menu className="h-6 w-6" strokeWidth={2.6} />
+      </button>
+
+      <div className="min-w-0 px-1 pt-1.5 text-center">
+        <p className="truncate text-[15px] font-semibold leading-5 tracking-normal text-slate-950 dark:text-slate-50">
+          {isStreaming ? t("app.top.thinking") : title || "Tommy"}
+        </p>
+        <p className="truncate text-[12px] font-medium leading-4 text-slate-500 dark:text-slate-400">
+          {sessionId ? `Tommy · ${sessionId.slice(-6)}` : "Tommy · Jin0"}
+        </p>
       </div>
 
-      <div className="flex flex-shrink-0 items-center gap-1.5">
-        <div className="pointer-events-auto">
-          <SettingsNavCard
-            open={settingsOpen}
-            settings={settings}
-            onToggle={onToggleSettings}
-            onChange={onSettingsChange}
-            compact
-          />
-        </div>
-        <button
-          type="button"
-          onClick={onOpenInspector}
-          className="ios-glass-pill pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full text-slate-700 transition active:scale-95 dark:text-slate-200"
-          aria-label={t("app.a11y.openInspector")}
-        >
-          <SlidersHorizontal className="h-4 w-4" strokeWidth={2.1} />
-        </button>
+      <div className="mobile-chatgpt-header-pill pointer-events-auto ml-auto flex h-14 items-center gap-3 rounded-full px-4 text-slate-950 dark:text-slate-100">
         <button
           type="button"
           onClick={onNewSession}
           disabled={isStreaming}
-          className="new-session-glass-button pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full text-slate-700 transition active:scale-95 disabled:opacity-40 dark:text-slate-200"
+          className="soft-focus-ring flex h-9 w-9 items-center justify-center rounded-full transition active:scale-95 disabled:opacity-40"
           aria-label={t("app.a11y.newSession")}
         >
-          <Plus className="h-4 w-4" strokeWidth={2.2} />
+          <Pencil className="h-6 w-6" strokeWidth={2.4} />
+        </button>
+        <button
+          type="button"
+          onClick={onOpenInspector}
+          className="soft-focus-ring flex h-9 w-9 items-center justify-center rounded-full transition active:scale-95"
+          aria-label={t("app.a11y.openInspector")}
+        >
+          <MoreHorizontal className="h-6 w-6" strokeWidth={2.8} />
         </button>
       </div>
     </div>

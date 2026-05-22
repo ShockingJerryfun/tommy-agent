@@ -931,6 +931,97 @@ textarea:disabled {
   box-shadow: var(--liquid-glass-shadow-hover);
 }
 
+.mobile-chatgpt-page {
+  background: #f4f4f2;
+}
+
+.mobile-chatgpt-header-button,
+.mobile-chatgpt-header-pill {
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.58);
+  box-shadow:
+    0 10px 26px rgba(0, 0, 0, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(20px) saturate(1.2);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+}
+
+.dark .mobile-chatgpt-page {
+  background: #111111;
+}
+
+.dark .mobile-chatgpt-header-button,
+.dark .mobile-chatgpt-header-pill {
+  background: rgba(32, 32, 32, 0.86);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.mobile-chatgpt-surface {
+  background: transparent;
+}
+
+.mobile-chatgpt-user-bubble {
+  background: #e8e8e6;
+  box-shadow: none;
+}
+
+.mobile-chatgpt-assistant-copy code {
+  color: #8a8a84;
+}
+
+.dark .mobile-chatgpt-user-bubble {
+  background: #2b2b2b;
+}
+
+.dark .mobile-chatgpt-assistant-copy code {
+  color: #a8a8a0;
+}
+
+.mobile-chatgpt-composer {
+  min-height: 132px;
+  border-radius: 25px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow:
+    0 18px 45px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.mobile-chatgpt-access-badge {
+  color: #d95f2f;
+}
+
+.mobile-chatgpt-model-label {
+  color: #111111;
+}
+
+.dark .mobile-chatgpt-composer {
+  background: rgba(32, 32, 32, 0.92);
+}
+
+.dark .mobile-chatgpt-model-label {
+  color: #f4f4f2;
+}
+
+@media (min-width: 768px) {
+  .mobile-chatgpt-page {
+    background: transparent;
+  }
+
+  .mobile-chatgpt-user-bubble {
+    background: var(--liquid-glass-bg);
+  }
+
+  .mobile-chatgpt-surface {
+    background: var(--liquid-glass-bg);
+  }
+
+  .mobile-chatgpt-composer {
+    min-height: auto;
+    border-radius: var(--apple-corner-intimate);
+    box-shadow: var(--liquid-glass-shadow-hover);
+  }
+}
+
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .glass-panel,
   .glass-panel-strong,
