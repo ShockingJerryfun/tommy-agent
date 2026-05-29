@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from ..settings import load_settings
 from .repos import (
+    AgentTeamMemberRepo,
+    AgentTeamMessageRepo,
+    AgentTeamRepo,
+    AgentTeamTaskRepo,
     ApprovalRepo,
     CompactionRepo,
     Connector,
@@ -28,6 +32,10 @@ from .repos import (
     SubagentRunRepo,
     ToolArtifactRepo,
     ToolCallRepo,
+    WorkflowPhaseRunRepo,
+    WorkflowRunRepo,
+    WorkflowSpecRepo,
+    WorkflowWorkerRunRepo,
     ensure_schema,
     reset_for_tests,
     utc_now,
@@ -67,6 +75,14 @@ class PostgresAgentStore(
         self.skill_activation_traces = SkillActivationTraceRepo(self._connector)
         self.skill_forge_runs = SkillForgeRunRepo(self._connector)
         self.subagent_runs = SubagentRunRepo(self._connector)
+        self.agent_teams = AgentTeamRepo(self._connector)
+        self.agent_team_members = AgentTeamMemberRepo(self._connector)
+        self.agent_team_tasks = AgentTeamTaskRepo(self._connector)
+        self.agent_team_messages = AgentTeamMessageRepo(self._connector)
+        self.workflow_specs = WorkflowSpecRepo(self._connector)
+        self.workflow_runs = WorkflowRunRepo(self._connector)
+        self.workflow_phase_runs = WorkflowPhaseRunRepo(self._connector)
+        self.workflow_worker_runs = WorkflowWorkerRunRepo(self._connector)
         self.run_metrics = RunMetricsRepo(self._connector)
         self.search = SearchRepo(self._connector)
         self.context_pacts = ContextPactRepo(self._connector)

@@ -16,7 +16,13 @@ from .chatgpt_web import (
     chatgpt_send_message,
     chatgpt_wait_until_done,
 )
-from .collaboration import context_pact_update, delegate_task, skill_propose
+from .collaboration import (
+    context_pact_update,
+    create_agent_team,
+    delegate_task,
+    run_agent_workflow,
+    skill_propose,
+)
 from .context import RUNTIME_TOOL_CONTEXT
 from .filesystem import (
     list_local_directory,
@@ -90,6 +96,8 @@ def create_default_registry() -> ToolRegistry:
             skill_propose,
             context_pact_update,
             delegate_task,
+            create_agent_team,
+            run_agent_workflow,
             create_xhs_content_job,
             build_chatgpt_xhs_prompt,
             validate_xhs_note_json,

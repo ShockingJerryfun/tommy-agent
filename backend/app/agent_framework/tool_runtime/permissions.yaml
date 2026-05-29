@@ -94,6 +94,18 @@ tools:
     risk: medium
     summary_template: "委派给 {target_agent}: {task_preview}"
 
+  create_agent_team:
+    approval: always
+    unrestricted_bypass: false
+    risk: medium
+    summary_template: "创建 Agent Team"
+
+  run_agent_workflow:
+    approval: always
+    unrestricted_bypass: false
+    risk: medium
+    summary_template: "运行 Agent Workflow"
+
   create_xhs_content_job:
     approval: never
     risk: low

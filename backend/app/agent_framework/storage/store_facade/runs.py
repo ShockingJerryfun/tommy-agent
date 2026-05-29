@@ -129,6 +129,9 @@ class RunStoreMixin:
     def run_stop_requested(self, *, session_id: str, run_id: str) -> bool:
         return self.run_controls.run_stop_requested(session_id=session_id, run_id=run_id)
 
+    def explicit_stop_requested(self, *, session_id: str, run_id: str) -> bool:
+        return self.run_controls.explicit_stop_requested(session_id=session_id, run_id=run_id)
+
     def finish_run(
         self,
         session_id: str,

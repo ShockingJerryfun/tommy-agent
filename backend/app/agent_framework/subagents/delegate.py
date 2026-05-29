@@ -132,7 +132,7 @@ class SubagentDelegator:
     ) -> SubagentResult:
         role = get_role(role_id)
 
-        if self.store.run_stop_requested(session_id=parent_session_id, run_id=parent_run_id):
+        if self.store.explicit_stop_requested(session_id=parent_session_id, run_id=parent_run_id):
             return SubagentResult(
                 subagent_id="",
                 child_session_id="",

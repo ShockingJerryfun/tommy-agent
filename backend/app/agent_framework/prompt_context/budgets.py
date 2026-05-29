@@ -25,6 +25,7 @@ SECTION_BUDGETS: dict[str, int] = {
     "plan": 1200,
     "critic_feedback": 1400,
     "subagent_summary": 1800,
+    "team_summary": 1800,
 }
 
 SECTION_MIN_CHARS: dict[str, int] = {

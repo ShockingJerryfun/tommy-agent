@@ -11,7 +11,9 @@ whitelist.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
+from ..agents import AgentDefinition, load_agent_registry
 from ..tool_runtime import (
     ToolRegistry,
     get_current_time,
@@ -35,6 +37,10 @@ class SubagentRole:
     tool_names: tuple[str, ...] = field(default_factory=tuple)
     max_turns: int = 6
     max_wall_seconds: float = 60.0
+    description: str = ""
+    permission_mode: str = "read_only"
+    model: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 def _registry(*tools: object) -> ToolRegistry:
@@ -53,82 +59,44 @@ _TOOLS_BY_NAME = {
 }
 
 
-_ROLES: dict[str, SubagentRole] = {
-    "researcher": SubagentRole(
-        id="researcher",
-        title="Researcher",
-        system_prompt=(
-            "You are a focused research subagent. Read sources carefully, "
-            "cite URLs in markdown link form, and produce a tight, factual "
-            "summary. You are read-only — never write files."
-        ),
-        tool_names=(
-            "get_current_time",
-            "web_search",
-            "read_workspace_file",
-            "list_workspace",
-            "read_local_file",
-            "list_local_directory",
-        ),
-        max_turns=6,
-        max_wall_seconds=60.0,
-    ),
-    "analyst": SubagentRole(
-        id="analyst",
-        title="Analyst",
-        system_prompt=(
-            "You are an analyst subagent. Synthesize evidence into a clear "
-            "argument with explicit claims, supporting facts, and citations. "
-            "You are read-only."
-        ),
-        tool_names=(
-            "get_current_time",
-            "web_search",
-            "read_workspace_file",
-            "list_workspace",
-            "read_local_file",
-            "list_local_directory",
-            "skill_propose",
-        ),
-        max_turns=8,
-        max_wall_seconds=90.0,
-    ),
-    "writer": SubagentRole(
-        id="writer",
-        title="Writer",
-        system_prompt=(
-            "You are a writing subagent. Produce well-structured prose "
-            "based on the supplied research. You may write a single output "
-            "artifact via write_local_file. Cite external sources."
-        ),
-        tool_names=(
-            "get_current_time",
-            "read_workspace_file",
-            "list_workspace",
-            "read_local_file",
-            "list_local_directory",
-            "write_local_file",
-        ),
-        max_turns=6,
-        max_wall_seconds=90.0,
-    ),
-}
+def _role_from_definition(definition: AgentDefinition) -> SubagentRole:
+    return SubagentRole(
+        id=definition.id,
+        title=definition.title,
+        description=definition.description,
+        system_prompt=definition.system_prompt,
+        tool_names=definition.tool_names,
+        max_turns=definition.max_turns,
+        max_wall_seconds=definition.max_wall_seconds,
+        permission_mode=definition.permission_mode,
+        model=definition.model,
+        metadata=definition.metadata,
+    )
+
+
+def _roles() -> dict[str, SubagentRole]:
+    registry = load_agent_registry(known_tool_names=set(_TOOLS_BY_NAME))
+    return {
+        definition_id: _role_from_definition(definition)
+        for definition_id, definition in registry.as_dict().items()
+    }
 
 
 def role_registry() -> dict[str, SubagentRole]:
     """Read-only view of the registered roles."""
 
-    return dict(_ROLES)
+    return _roles()
 
 
 def list_role_ids() -> list[str]:
-    return list(_ROLES.keys())
+    return list(_roles().keys())
 
 
 def get_role(role_id: str) -> SubagentRole:
-    if role_id not in _ROLES:
+    roles = _roles()
+    if role_id not in roles:
         raise KeyError(f"unknown subagent role: {role_id}")
-    return _ROLES[role_id]
+    return roles[role_id]
 
 
 def registry_for_role(role_id: str) -> ToolRegistry:

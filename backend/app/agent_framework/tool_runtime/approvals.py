@@ -81,6 +81,8 @@ def execute_approved_action(
     runtime_context = {
         **(context or {}),
         "session_id": approval.get("session_id"),
+        "run_id": approval.get("run_id"),
+        "metadata": {"run_id": approval.get("run_id")},
         "approval_granted": True,
         "approval_id": approval.get("id"),
     }

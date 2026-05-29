@@ -12,6 +12,12 @@ from ._base import (
     refresh_session_summary,
     utc_now,
 )
+from .agent_teams import (
+    AgentTeamMemberRepo,
+    AgentTeamMessageRepo,
+    AgentTeamRepo,
+    AgentTeamTaskRepo,
+)
 from .approvals import ApprovalRepo
 from .compaction import CompactionRepo
 from .consolidation import ConsolidationRunRepo
@@ -38,9 +44,19 @@ from .skills import SkillRepo
 from .subagent_runs import SubagentRunRepo
 from .tool_artifacts import ToolArtifactRepo
 from .tool_calls import ToolCallRepo
+from .workflows import (
+    WorkflowPhaseRunRepo,
+    WorkflowRunRepo,
+    WorkflowSpecRepo,
+    WorkflowWorkerRunRepo,
+)
 
 __all__ = [
     "ApprovalRepo",
+    "AgentTeamMemberRepo",
+    "AgentTeamMessageRepo",
+    "AgentTeamRepo",
+    "AgentTeamTaskRepo",
     "CompactionRepo",
     "Connector",
     "ConsolidationRunRepo",
@@ -65,6 +81,10 @@ __all__ = [
     "SubagentRunRepo",
     "ToolArtifactRepo",
     "ToolCallRepo",
+    "WorkflowPhaseRunRepo",
+    "WorkflowRunRepo",
+    "WorkflowSpecRepo",
+    "WorkflowWorkerRunRepo",
     "database_name_from_dsn",
     "dumps",
     "ensure_schema",

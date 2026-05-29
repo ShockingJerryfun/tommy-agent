@@ -382,6 +382,31 @@ def test_resolver_does_not_select_unrelated_skills_for_generic_query():
     assert result.diagnostics == []
 
 
+def test_resolver_keeps_lexical_matches_when_semantic_recall_fails():
+    rows = [
+        {
+            "name": "reviewer",
+            "relative_path": "reviewer/SKILL.md",
+            "description": "Review code changes.",
+            "metadata": {"normalized": {"triggers": ["review code"], "domains": ["code"]}},
+        }
+    ]
+
+    result = SkillResolver(catalog_rows=rows, activator=_FailingActivator()).resolve(
+        "Please review code changes",
+        agent_id="agent-1",
+    )
+
+    assert [skill.relative_path for skill in result.selected] == ["reviewer/SKILL.md"]
+    assert result.diagnostics == [
+        {
+            "path": "",
+            "severity": "warning",
+            "message": "skill activation failed: embedding provider unavailable",
+        }
+    ]
+
+
 def test_resolver_only_reports_missing_tools_when_tool_inventory_is_known():
     rows = [
         {
@@ -666,8 +691,9 @@ description: Inspect localhost pages.
         activator=_FailingActivator(),
     ).build(agent_id="agent-1", query="inspect localhost", skills_root=tmp_path)
 
-    assert result["selected_markdown"] == ""
-    assert result["activation"]["selected"] == []
+    assert "## browser" in result["selected_markdown"]
+    assert result["activation"]["selected"][0]["relative_path"] == "browser/SKILL.md"
+    assert "keyword_match" in result["activation"]["selected"][0]["reason_codes"]
     assert result["activation"]["diagnostics"] == [
         {
             "path": "",

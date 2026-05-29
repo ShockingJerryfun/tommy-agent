@@ -29,6 +29,7 @@ RENDER_ORDER: dict[str, int] = {
     "plan": 32,
     "critic_feedback": 36,
     "subagent_summary": 88,
+    "team_summary": 87,
 }
 
 
@@ -210,6 +211,13 @@ def build_section_drafts(
             priority=92,
         ),
         make_section(
+            "team_summary",
+            "Team Results",
+            team_summary_markdown(store, session_id),
+            source="store.agent_teams",
+            priority=70,
+        ),
+        make_section(
             "subagent_summary",
             "Subagent Results",
             subagent_summary_markdown(store, session_id),
@@ -255,6 +263,21 @@ def subagent_summary_markdown(store: Any, session_id: str) -> str:
         return subagent_summary_section(store, parent_session_id=session_id)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Unable to build subagent summary for session %s: %s", session_id, exc)
+        return ""
+
+
+def team_summary_markdown(store: Any, session_id: str) -> str:
+    if not session_id:
+        return ""
+    try:
+        from ..teams import team_summary_section
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Team summary section is unavailable: %s", exc)
+        return ""
+    try:
+        return team_summary_section(store, parent_session_id=session_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Unable to build team summary for session %s: %s", session_id, exc)
         return ""
 
 

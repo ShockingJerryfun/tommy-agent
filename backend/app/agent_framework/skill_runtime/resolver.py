@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Iterable
 from typing import Any
 
 from .types import ResolvedSkill, SkillResolution
+
+logger = logging.getLogger(__name__)
 
 
 class SkillResolver:
@@ -18,6 +21,7 @@ class SkillResolver:
         self._catalog_rows = list(catalog_rows or [])
         self._activator = activator
         self._available_tools = None if available_tools is None else set(available_tools)
+        self._semantic_recall_error: str | None = None
 
     def resolve(
         self,
@@ -30,6 +34,7 @@ class SkillResolver:
     ) -> SkillResolution:
         rows_by_path: dict[str, dict[str, Any]] = {}
         semantic_scores: dict[str, float] = {}
+        self._semantic_recall_error = None
 
         for row in catalog_rows if catalog_rows is not None else self._catalog_rows:
             normalized = _row_payload(row)
@@ -48,6 +53,15 @@ class SkillResolver:
             )
 
         diagnostics: list[dict[str, str]] = []
+        global_diagnostics: list[dict[str, str]] = []
+        if self._semantic_recall_error:
+            global_diagnostics.append(
+                {
+                    "path": "",
+                    "severity": "warning",
+                    "message": f"skill activation failed: {self._semantic_recall_error}",
+                }
+            )
         candidates: list[ResolvedSkill] = []
         for row in rows_by_path.values():
             status = str(row.get("status") or "active")
@@ -101,7 +115,10 @@ class SkillResolver:
         selected_diagnostics = [
             diagnostic for diagnostic in diagnostics if diagnostic["path"] in selected_paths
         ]
-        return SkillResolution(selected=selected, diagnostics=selected_diagnostics)
+        return SkillResolution(
+            selected=selected,
+            diagnostics=[*global_diagnostics, *selected_diagnostics],
+        )
 
     def _recall(self, *, agent_id: str, query: str, k: int) -> list[Any]:
         if self._activator is None:
@@ -117,6 +134,10 @@ class SkillResolver:
             )
         except TypeError:
             return list(self._activator.recall(query=query))
+        except Exception as exc:  # noqa: BLE001 - semantic recall must not block lexical match.
+            self._semantic_recall_error = str(exc)
+            logger.debug("Semantic skill recall failed; falling back to lexical scoring: %s", exc)
+            return []
 
 
 def _row_payload(row: Any) -> dict[str, Any]:

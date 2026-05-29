@@ -132,6 +132,37 @@ class RunControlRepo:
             ).fetchone()
         return bool(row and row["status"] in {"stopping", "stopped"})
 
+    def explicit_stop_requested(self, *, session_id: str, run_id: str) -> bool:
+        """Return True only for user-requested cancellation/stop signals.
+
+        Approval waits can leave the parent run in an ``interrupted`` state and
+        its control row as ``stopped`` without a stop timestamp. Child work that
+        executes after approval must not treat that bookkeeping state as a user
+        stop request.
+        """
+        if not session_id or not run_id:
+            return False
+        with self._connector.connect() as conn:
+            run_row = conn.execute(
+                """
+                SELECT cancel_requested
+                FROM runs
+                WHERE session_id = ? AND id = ?
+                """,
+                (session_id, run_id),
+            ).fetchone()
+            if run_row and int(run_row["cancel_requested"] or 0) == 1:
+                return True
+            control_row = conn.execute(
+                """
+                SELECT stop_requested_at
+                FROM run_controls
+                WHERE session_id = ? AND id = ?
+                """,
+                (session_id, run_id),
+            ).fetchone()
+        return bool(control_row and control_row["stop_requested_at"])
+
     def finish_run(
         self,
         session_id: str,

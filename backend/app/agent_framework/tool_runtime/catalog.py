@@ -18,10 +18,14 @@ from ..tool_modules.chatgpt_web import (
 )
 from ..tool_modules.collaboration import (
     ContextPactUpdateArgs,
+    CreateAgentTeamArgs,
     DelegateTaskArgs,
+    RunAgentWorkflowArgs,
     SkillProposeArgs,
     context_pact_update,
+    create_agent_team,
     delegate_task,
+    run_agent_workflow,
     skill_propose,
 )
 from ..tool_modules.context import RUNTIME_TOOL_CONTEXT
@@ -78,6 +82,7 @@ __all__ = [
     "ChatgptWaitUntilDoneArgs",
     "CheckXhsContentRiskArgs",
     "ContextPactUpdateArgs",
+    "CreateAgentTeamArgs",
     "CreateXhsContentJobArgs",
     "DelegateTaskArgs",
     "ListLocalDirectoryArgs",
@@ -86,6 +91,7 @@ __all__ = [
     "ReadLocalFileArgs",
     "ReadWorkspaceFileArgs",
     "RunShellCommandArgs",
+    "RunAgentWorkflowArgs",
     "SkillProposeArgs",
     "ToolRegistry",
     "ValidateXhsNoteJsonArgs",
@@ -107,6 +113,7 @@ __all__ = [
     "chatgpt_wait_until_done",
     "check_xhs_content_risk",
     "context_pact_update",
+    "create_agent_team",
     "create_default_registry",
     "create_xhs_content_job",
     "delegate_task",
@@ -116,6 +123,7 @@ __all__ = [
     "read_local_file",
     "read_workspace_file",
     "run_shell_command",
+    "run_agent_workflow",
     "skill_propose",
     "validate_xhs_note_json",
     "web_search",

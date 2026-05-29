@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import threading
+from collections.abc import Coroutine
 from typing import Literal
 
 from langchain_core.tools import tool
@@ -35,6 +38,31 @@ class DelegateTaskArgs(BaseModel):
     task: str = Field(..., min_length=1)
     target_agent: str = "researcher"
     reason: str = ""
+
+
+class TeamMemberToolSpec(BaseModel):
+    role: str = Field(..., min_length=1)
+    agent_definition_id: str | None = None
+
+
+class TeamTaskToolSpec(BaseModel):
+    title: str = Field(..., min_length=1)
+    description: str = Field(..., min_length=1)
+    assigned_role: str | None = None
+    dependencies: list[str] = Field(default_factory=list)
+    priority: int = 0
+
+
+class CreateAgentTeamArgs(BaseModel):
+    goal: str = Field(..., min_length=1)
+    members: list[TeamMemberToolSpec] = Field(..., min_length=1)
+    tasks: list[TeamTaskToolSpec] = Field(default_factory=list)
+    metadata: dict[str, str] = Field(default_factory=dict)
+
+
+class RunAgentWorkflowArgs(BaseModel):
+    workflow_yaml: str = Field(..., min_length=1)
+    inputs: dict[str, object] = Field(default_factory=dict)
 
 
 @tool(args_schema=SkillProposeArgs)
@@ -106,7 +134,7 @@ def delegate_task(task: str, target_agent: str = "researcher", reason: str = "")
     if context.get("approval_granted"):
         session_id = str(context.get("session_id") or "")
         parent_run_id = str((context.get("metadata") or {}).get("run_id") or "")
-        if get_agent_store().run_stop_requested(session_id=session_id, run_id=parent_run_id):
+        if get_agent_store().explicit_stop_requested(session_id=session_id, run_id=parent_run_id):
             return json.dumps(
                 {
                     "status": "stopped",
@@ -149,3 +177,162 @@ def delegate_task(task: str, target_agent: str = "researcher", reason: str = "")
         ensure_ascii=False,
         default=str,
     )
+
+
+@tool(args_schema=CreateAgentTeamArgs)
+def create_agent_team(
+    goal: str,
+    members: list[TeamMemberToolSpec],
+    tasks: list[TeamTaskToolSpec] | None = None,
+    metadata: dict[str, str] | None = None,
+) -> str:
+    """Create a lead-controlled agent team with optional queued tasks."""
+
+    context = runtime_context()
+    if not context.get("approval_granted"):
+        return json.dumps(
+            {
+                "status": "queued",
+                "team_id": "",
+                "summary": "Agent team creation is queued for approval.",
+                "child_run_references": [],
+            },
+            ensure_ascii=False,
+            default=str,
+        )
+
+    session_id = str(context.get("session_id") or "")
+    parent_run_id = _context_run_id(context)
+    if not session_id or not parent_run_id:
+        raise ValueError("session_id and run_id are required to create an agent team")
+
+    from ..teams import TeamService
+
+    store = get_agent_store()
+    service = TeamService(store)
+    team = service.create_team(
+        parent_session_id=session_id,
+        parent_run_id=parent_run_id,
+        goal=goal,
+        members=[
+            {
+                "role": member.role,
+                "agent_definition_id": member.agent_definition_id or member.role,
+            }
+            for member in members
+        ],
+        metadata={
+            **(metadata or {}),
+            "approval_id": str(context.get("approval_id") or ""),
+            "source": "tool",
+        },
+    )
+    created_tasks = []
+    for task in tasks or []:
+        created_tasks.append(
+            service.create_task(
+                team["id"],
+                title=task.title,
+                description=task.description,
+                assigned_role=task.assigned_role,
+                dependencies=task.dependencies,
+                priority=task.priority,
+            )
+        )
+
+    return json.dumps(
+        {
+            "status": team["status"],
+            "team_id": team["id"],
+            "task_count": len(created_tasks),
+            "summary": f"Created agent team for goal: {goal}",
+            "child_run_references": [],
+        },
+        ensure_ascii=False,
+        default=str,
+    )
+
+
+@tool(args_schema=RunAgentWorkflowArgs)
+def run_agent_workflow(
+    workflow_yaml: str,
+    inputs: dict[str, object] | None = None,
+) -> str:
+    """Run a declarative YAML workflow through bounded worker agents."""
+
+    context = runtime_context()
+    if not context.get("approval_granted"):
+        return json.dumps(
+            {
+                "status": "queued",
+                "workflow_run_id": "",
+                "summary": "Agent workflow execution is queued for approval.",
+                "child_run_references": [],
+            },
+            ensure_ascii=False,
+            default=str,
+        )
+
+    session_id = str(context.get("session_id") or "")
+    parent_run_id = _context_run_id(context)
+    if not session_id or not parent_run_id:
+        raise ValueError("session_id and run_id are required to run an agent workflow")
+
+    from ..workflows import WorkflowRuntime, load_workflow_spec_text
+
+    spec = load_workflow_spec_text(workflow_yaml)
+    result = _run_coro_sync(
+        WorkflowRuntime(get_agent_store()).run(
+            spec,
+            parent_session_id=session_id,
+            parent_run_id=parent_run_id,
+            inputs=dict(inputs or {}),
+        )
+    )
+    child_refs = [
+        {
+            "subagent_run_id": row["subagent_run_id"],
+            "child_session_id": row["child_session_id"],
+            "status": row["status"],
+        }
+        for row in get_agent_store().workflow_worker_runs.list_for_run(result.workflow_run_id)
+    ]
+    return json.dumps(
+        {
+            "status": result.status,
+            "workflow_run_id": result.workflow_run_id,
+            "summary": result.summary,
+            "child_run_references": child_refs,
+        },
+        ensure_ascii=False,
+        default=str,
+    )
+
+
+def _context_run_id(context: dict[str, object]) -> str:
+    metadata = context.get("metadata") if isinstance(context.get("metadata"), dict) else {}
+    return str(context.get("run_id") or metadata.get("run_id") or "")
+
+
+def _run_coro_sync(coro: Coroutine[object, object, object]) -> object:
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+
+    result: object = None
+    error: BaseException | None = None
+
+    def run_in_thread() -> None:
+        nonlocal result, error
+        try:
+            result = asyncio.run(coro)
+        except BaseException as exc:  # noqa: BLE001 - re-raised in caller thread.
+            error = exc
+
+    thread = threading.Thread(target=run_in_thread, daemon=True)
+    thread.start()
+    thread.join()
+    if error is not None:
+        raise error
+    return result
