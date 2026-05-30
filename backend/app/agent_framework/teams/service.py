@@ -6,6 +6,7 @@ from typing import Any
 
 from ..storage import PostgresAgentStore
 from ..workers import WorkerPool, WorkerRunner, WorkerTask
+from ..workers.context import merge_child_parent_metadata
 from .coordinator import team_status_from_task_statuses
 from .summary import team_summary_markdown
 
@@ -161,6 +162,16 @@ class TeamService:
         member = self.store.agent_team_members.get(task["assigned_member_id"])
         if member is None:
             raise ValueError(f"task {task['id']} has no assigned team member")
+        team_metadata = team.get("metadata") if isinstance(team.get("metadata"), dict) else {}
+        task_metadata = task.get("metadata") if isinstance(task.get("metadata"), dict) else {}
+        metadata = merge_child_parent_metadata(
+            team_metadata,
+            {
+                **task_metadata,
+                "team_id": team["id"],
+                "team_task_id": task["id"],
+            },
+        )
         return WorkerTask(
             id=task["id"],
             role_id=member["agent_definition_id"],
@@ -168,8 +179,9 @@ class TeamService:
             reason=f"Team goal: {team['goal']}",
             parent_session_id=team["parent_session_id"],
             parent_run_id=team["parent_run_id"],
-            agent_id="default",
-            metadata={"team_id": team["id"], "team_task_id": task["id"]},
+            agent_id=str(metadata.get("agent_id") or "default"),
+            metadata=metadata,
+            approval_id=str(metadata.get("approval_id") or ""),
         )
 
 

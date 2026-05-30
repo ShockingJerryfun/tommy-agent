@@ -20,6 +20,7 @@ from app.agent_framework.subagents import (
     SubagentRole,
     list_role_ids,
     registry_for_role,
+    run_delegate_task,
     score_response,
     subagent_summary_section,
 )
@@ -272,6 +273,60 @@ WORKSPACE REVIEWER PROMPT.
     assert "WORKSPACE REVIEWER PROMPT." in seen["prompt"]
 
 
+def test_run_delegate_task_parent_metadata_enables_workspace_role_override(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_agent(
+        tmp_path / ".tommy" / "agents" / "reviewer.md",
+        """---
+id: reviewer
+title: Workspace Reviewer
+tools:
+  - read_workspace_file
+---
+WORKSPACE REVIEWER PROMPT.
+""",
+    )
+    store = _store()
+    parent_session_id, parent_run_id = _new_session(store)
+    seen: dict[str, Any] = {}
+
+    def runner(
+        prompt: str,
+        registry: ToolRegistry,
+        role: SubagentRole,
+        thread_config: dict[str, Any],
+    ) -> dict[str, Any]:
+        seen["prompt"] = prompt
+        seen["role"] = role.title
+        return {"final_response": "reviewed", "status": "completed"}
+
+    monkeypatch.setattr(
+        "app.agent_framework.subagents.orchestrator.get_agent_store",
+        lambda: store,
+    )
+    monkeypatch.setattr(
+        "app.agent_framework.workers.child_run_service.default_subagent_runner",
+        runner,
+    )
+
+    result = run_delegate_task(
+        task="review X",
+        target_agent="reviewer",
+        reason="test",
+        session_id=parent_session_id,
+        parent_run_id=parent_run_id,
+        approval_id="approval-1",
+        parent_metadata={"frontend_settings": {"workingDirectory": str(tmp_path)}},
+    )
+
+    assert result["status"] == "completed"
+    assert result["target_agent"] == "reviewer"
+    assert seen["role"] == "Workspace Reviewer"
+    assert "WORKSPACE REVIEWER PROMPT." in seen["prompt"]
+
+
 def test_delegator_records_failures_without_raising() -> None:
     store = _store()
     parent_session_id, parent_run_id = _new_session(store)
@@ -354,6 +409,45 @@ def test_best_of_n_picks_highest_score() -> None:
     assert len(rows) == 3
     assert [r["attempt_index"] for r in rows] == [0, 1, 2]
     assert all(r["status"] == "completed" for r in rows)
+
+
+def test_best_of_n_parent_metadata_enables_workspace_role_override(tmp_path: Path) -> None:
+    _write_agent(
+        tmp_path / ".tommy" / "agents" / "reviewer.md",
+        """---
+id: reviewer
+title: Workspace Reviewer
+tools:
+  - read_workspace_file
+---
+WORKSPACE REVIEWER PROMPT.
+""",
+    )
+    store = _store()
+    parent_session_id, parent_run_id = _new_session(store)
+    seen_titles: list[str] = []
+
+    def runner(
+        prompt: str,
+        registry: ToolRegistry,
+        role: SubagentRole,
+        thread_config: dict[str, Any],
+    ) -> dict[str, Any]:
+        seen_titles.append(role.title)
+        return {"final_response": "reviewed https://example.com", "status": "completed"}
+
+    merger = BestOfNMerger(store, SubagentDelegator(store, runner=runner))
+    merged = merger.run(
+        task="t",
+        role_id="reviewer",
+        parent_session_id=parent_session_id,
+        parent_run_id=parent_run_id,
+        n=2,
+        parent_metadata={"frontend_settings": {"workingDirectory": str(tmp_path)}},
+    )
+
+    assert merged.status == "completed"
+    assert seen_titles == ["Workspace Reviewer", "Workspace Reviewer"]
 
 
 def test_best_of_n_returns_failed_when_all_attempts_empty() -> None:

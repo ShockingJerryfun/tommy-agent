@@ -197,6 +197,41 @@ async def test_worker_pool_default_runner_uses_subagent_delegator() -> None:
 
 
 @pytest.mark.asyncio
+async def test_worker_pool_default_path_uses_child_run_service_and_preserves_task_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = _store()
+    parent_session_id, parent_run_id = _new_session(store)
+
+    def fake_subagent_runner(
+        prompt: str,
+        registry: ToolRegistry,
+        role: SubagentRole,
+        thread_config: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {"final_response": f"{role.id} direct", "status": "completed"}
+
+    def fail_if_delegator_used(self: SubagentDelegator, **kwargs: Any) -> None:
+        raise AssertionError("implicit delegator should not be used")
+
+    monkeypatch.setattr(
+        "app.agent_framework.workers.child_run_service.default_subagent_runner",
+        fake_subagent_runner,
+    )
+    monkeypatch.setattr(SubagentDelegator, "dispatch", fail_if_delegator_used)
+
+    results = await WorkerPool(store=store).run(
+        [_task("direct-task", parent_session_id=parent_session_id, parent_run_id=parent_run_id)]
+    )
+
+    assert results[0].task_id == "direct-task"
+    assert results[0].subagent_id.startswith("sub-")
+    assert results[0].final_response == "researcher direct"
+    row = store.subagent_runs.list_for_session(parent_session_id)[0]
+    assert row["id"] == results[0].subagent_id
+
+
+@pytest.mark.asyncio
 async def test_worker_pool_passes_supplied_child_context_to_delegator() -> None:
     context = ChildRunContext(
         parent_session_id="sess-parent",

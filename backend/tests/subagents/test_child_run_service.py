@@ -64,6 +64,32 @@ def test_child_run_service_creates_child_result_with_fake_runner() -> None:
     assert rows[0]["status"] == "completed"
 
 
+def test_child_run_service_preserves_request_task_id_in_worker_result() -> None:
+    store = _store()
+    parent_session_id, parent_run_id = _new_session(store)
+
+    def runner(*_: Any, **__: Any) -> dict[str, Any]:
+        return {"final_response": "ok", "status": "completed"}
+
+    context = derive_child_context(
+        parent_session_id=parent_session_id,
+        parent_run_id=parent_run_id,
+        role_id="researcher",
+    )
+    result = ChildRunService(store, runner=runner).run(
+        ChildRunRequest(
+            task="research x",
+            role_id="researcher",
+            context=context,
+            task_id="task-123",
+        )
+    )
+
+    assert result.task_id == "task-123"
+    assert result.subagent_id.startswith("sub-")
+    assert store.subagent_runs.list_for_session(parent_session_id)[0]["id"] == result.subagent_id
+
+
 def test_child_run_service_uses_workspace_role_override_in_prompt(tmp_path: Path) -> None:
     _write_agent(
         tmp_path / ".tommy" / "agents" / "reviewer.md",
@@ -118,7 +144,11 @@ title: Workspace Reviewer
 tools:
   - read_workspace_file
   - create_agent_team
+  - run_agent_team
+  - get_agent_team_status
   - run_agent_workflow
+  - get_agent_workflow_status
+  - create_agent_workflow
 ---
 Try to spawn more work.
 """,
@@ -149,7 +179,11 @@ Try to spawn more work.
 
     assert "read_workspace_file" in seen_tool_names
     assert "create_agent_team" not in seen_tool_names
+    assert "run_agent_team" not in seen_tool_names
+    assert "get_agent_team_status" not in seen_tool_names
     assert "run_agent_workflow" not in seen_tool_names
+    assert "get_agent_workflow_status" not in seen_tool_names
+    assert "create_agent_workflow" not in seen_tool_names
 
 
 def test_child_run_service_persists_lineage_metadata() -> None:

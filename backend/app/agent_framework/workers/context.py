@@ -51,11 +51,33 @@ _OVERRIDABLE_FIELDS = {
 }
 _PERMISSION_RANK = {
     "read_only": 0,
+    "test_runner": 1,
+    "workspace_patch": 1,
     "workspace_write": 1,
+    "workflow_lead": 1,
     "write": 1,
     "admin": 2,
     "danger_full_access": 2,
 }
+_PARENT_METADATA_FIELDS = (
+    "run_id",
+    "agent_id",
+    "frontend_settings",
+    "workingDirectory",
+    "working_directory",
+    "commandScope",
+    "command_scope",
+    "model",
+    "permission_mode",
+    "budget",
+    "approval_id",
+    "depth",
+    "team_id",
+    "team_task_id",
+    "workflow_run_id",
+    "phase_run_id",
+    "workflow_phase_id",
+)
 
 
 @dataclass(frozen=True)
@@ -132,11 +154,14 @@ def derive_child_context(
 ) -> ChildRunContext:
     """Derive a narrowed child context from parent runtime metadata."""
 
-    source = dict(parent_metadata or {})
+    source = merge_child_parent_metadata(None, parent_metadata)
     override_values = dict(overrides or {})
     frontend_settings = _frontend_settings(source, override_values)
     base_command_scope = _scope_value(
-        source.get("command_scope") or frontend_settings.get("commandScope") or "restricted"
+        source.get("command_scope")
+        or source.get("commandScope")
+        or frontend_settings.get("commandScope")
+        or "restricted"
     )
     requested_command_scope = _scope_value(
         override_values.get("command_scope", base_command_scope)
@@ -149,7 +174,10 @@ def derive_child_context(
     working_directory = str(
         override_values.get(
             "working_directory",
-            source.get("working_directory") or frontend_settings.get("workingDirectory") or "",
+            source.get("working_directory")
+            or source.get("workingDirectory")
+            or frontend_settings.get("workingDirectory")
+            or "",
         )
         or ""
     )
@@ -195,6 +223,42 @@ def derive_child_context(
     return ChildRunContext(**values)
 
 
+def parent_metadata_from_runtime_context(context: dict[str, Any]) -> dict[str, Any]:
+    """Extract and normalize child-inheritable metadata from runtime tool context."""
+
+    context_metadata = context.get("metadata")
+    metadata = dict(context_metadata or {}) if isinstance(context_metadata, dict) else {}
+    top_level = {
+        field_name: context[field_name]
+        for field_name in _PARENT_METADATA_FIELDS
+        if field_name in context
+    }
+    if "run_id" in context:
+        top_level["run_id"] = context["run_id"]
+    if "agent_id" in context:
+        top_level["agent_id"] = context["agent_id"]
+    if "approval_id" in context:
+        top_level["approval_id"] = context["approval_id"]
+    return merge_child_parent_metadata(metadata, top_level)
+
+
+def merge_child_parent_metadata(
+    base: dict[str, Any] | None,
+    patch: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Merge parent metadata patches while preserving aliases needed by child runs."""
+
+    merged = _merge_raw_metadata(base, patch)
+    scoped = _merged_command_scope(base, patch)
+    if scoped:
+        merged["commandScope"] = scoped
+        merged["command_scope"] = scoped
+    permission_mode = _merged_permission_mode(base, patch)
+    if permission_mode:
+        merged["permission_mode"] = permission_mode
+    return _normalize_parent_metadata(merged)
+
+
 def _frontend_settings(
     parent_metadata: dict[str, Any],
     overrides: dict[str, Any],
@@ -203,6 +267,115 @@ def _frontend_settings(
     if raw is None:
         raw = parent_metadata.get("frontend_settings") or parent_metadata.get("frontendSettings")
     return dict(raw) if isinstance(raw, dict) else {}
+
+
+def _merge_raw_metadata(
+    base: dict[str, Any] | None,
+    patch: dict[str, Any] | None,
+) -> dict[str, Any]:
+    merged = dict(base or {})
+    patch_values = dict(patch or {})
+    base_settings = merged.get("frontend_settings")
+    patch_settings = patch_values.get("frontend_settings")
+    if isinstance(base_settings, dict) or isinstance(patch_settings, dict):
+        merged["frontend_settings"] = {
+            **(base_settings if isinstance(base_settings, dict) else {}),
+            **(patch_settings if isinstance(patch_settings, dict) else {}),
+        }
+    for key, value in patch_values.items():
+        if key != "frontend_settings":
+            merged[key] = value
+    return merged
+
+
+def _normalize_parent_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(metadata)
+    frontend_settings = dict(normalized.get("frontend_settings") or {})
+    working_directory = _effective_working_directory(normalized, frontend_settings)
+    command_scope = _effective_command_scope(normalized, frontend_settings)
+    if working_directory:
+        normalized["workingDirectory"] = working_directory
+        normalized["working_directory"] = working_directory
+        frontend_settings["workingDirectory"] = working_directory
+    normalized["commandScope"] = command_scope
+    normalized["command_scope"] = command_scope
+    frontend_settings["commandScope"] = command_scope
+    if frontend_settings:
+        normalized["frontend_settings"] = frontend_settings
+    return normalized
+
+
+def _effective_working_directory(
+    metadata: dict[str, Any],
+    frontend_settings: dict[str, Any],
+) -> str:
+    for key in ("working_directory", "workingDirectory"):
+        value = str(metadata.get(key) or "").strip()
+        if value:
+            return value
+    return str(frontend_settings.get("workingDirectory") or "").strip()
+
+
+def _effective_command_scope(
+    metadata: dict[str, Any],
+    frontend_settings: dict[str, Any],
+) -> str:
+    values = [
+        metadata.get("command_scope"),
+        metadata.get("commandScope"),
+        frontend_settings.get("commandScope"),
+    ]
+    scopes = [_scope_value(value) for value in values if value]
+    if "restricted" in scopes:
+        return "restricted"
+    if "unrestricted" in scopes:
+        return "unrestricted"
+    return "restricted"
+
+
+def _merged_command_scope(
+    base: dict[str, Any] | None,
+    patch: dict[str, Any] | None,
+) -> str:
+    base_scope = _metadata_command_scope(base)
+    patch_scope = _metadata_command_scope(patch)
+    if base_scope and patch_scope:
+        return _narrow_scope(base_scope, patch_scope)
+    return patch_scope or base_scope or ""
+
+
+def _metadata_command_scope(metadata: dict[str, Any] | None) -> str:
+    if not metadata:
+        return ""
+    frontend_settings = metadata.get("frontend_settings")
+    values = [
+        metadata.get("command_scope"),
+        metadata.get("commandScope"),
+        frontend_settings.get("commandScope") if isinstance(frontend_settings, dict) else None,
+    ]
+    scopes = [_scope_value(value) for value in values if value]
+    if "restricted" in scopes:
+        return "restricted"
+    if "unrestricted" in scopes:
+        return "unrestricted"
+    return ""
+
+
+def _merged_permission_mode(
+    base: dict[str, Any] | None,
+    patch: dict[str, Any] | None,
+) -> str:
+    base_mode = _metadata_permission_mode(base)
+    patch_mode = _metadata_permission_mode(patch)
+    if base_mode and patch_mode:
+        return _narrow_permission(base_mode, patch_mode)
+    return patch_mode or base_mode or ""
+
+
+def _metadata_permission_mode(metadata: dict[str, Any] | None) -> str:
+    if not metadata or not metadata.get("permission_mode"):
+        return ""
+    return _permission_value(metadata.get("permission_mode"))
 
 
 def _dict_value(value: Any) -> dict[str, Any]:

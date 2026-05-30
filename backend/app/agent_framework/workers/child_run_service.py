@@ -23,7 +23,10 @@ SubagentRunner = Callable[
 
 _CITATION_RX = re.compile(r"https?://\S+|\[[^\]]+\]\([^)]+\)")
 _RECURSIVE_TOOL_NAMES = {
+    "create_agent_workflow",
     "create_agent_team",
+    "get_agent_team_status",
+    "get_agent_workflow_status",
     "run_agent_team",
     "run_agent_workflow",
 }
@@ -36,6 +39,7 @@ class ChildRunRequest:
     context: ChildRunContext
     attempt_index: int = 0
     reason: str = ""
+    task_id: str = ""
 
 
 def default_subagent_runner(
@@ -98,7 +102,7 @@ class ChildRunService:
             run_id=context.parent_run_id,
         ):
             return WorkerResult(
-                task_id="",
+                task_id=request.task_id,
                 subagent_id="",
                 child_session_id="",
                 role_id=request.role_id,
@@ -149,7 +153,7 @@ class ChildRunService:
                 finished=True,
             )
             return WorkerResult(
-                task_id=record["id"],
+                task_id=request.task_id or record["id"],
                 subagent_id=record["id"],
                 child_session_id=child_session_id,
                 role_id=role.id,
@@ -174,7 +178,7 @@ class ChildRunService:
             finished=True,
         )
         return WorkerResult(
-            task_id=record["id"],
+            task_id=request.task_id or record["id"],
             subagent_id=record["id"],
             child_session_id=child_session_id,
             role_id=role.id,
@@ -182,6 +186,7 @@ class ChildRunService:
             final_response=final,
             score=score,
             metadata={
+                **metadata,
                 "citations_count": citations,
                 "tool_scope": [tool.name for tool in registry.tools],
             },
@@ -211,7 +216,16 @@ def _apply_recursion_guard(registry: ToolRegistry, context: ChildRunContext) -> 
 def _is_recursive_spawning_tool(name: str) -> bool:
     return (
         name in _RECURSIVE_TOOL_NAMES
-        or name.startswith(("create_agent_team", "run_agent_team", "run_agent_workflow"))
+        or name.startswith(
+            (
+                "create_agent_team",
+                "create_agent_workflow",
+                "get_agent_team_status",
+                "get_agent_workflow_status",
+                "run_agent_team",
+                "run_agent_workflow",
+            )
+        )
         or "agent_team" in name
         or "workflow" in name
     )

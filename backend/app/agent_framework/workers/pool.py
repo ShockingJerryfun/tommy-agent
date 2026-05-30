@@ -1,4 +1,4 @@
-"""Bounded concurrent worker pool built on SubagentDelegator."""
+"""Bounded concurrent worker pool built on ChildRunService."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from dataclasses import replace
 from ..storage import PostgresAgentStore
 from ..subagents import SubagentDelegator
 from ..subagents.delegate import SubagentResult
+from .child_run_service import ChildRunRequest, ChildRunService
 from .context import derive_child_context
 from .runner import WorkerRunner
 from .types import WorkerResult, WorkerTask
@@ -31,7 +32,7 @@ class WorkerPool:
         if runner is None and delegator is None and store is None:
             raise ValueError("WorkerPool requires a runner, delegator, or store")
         self.store = store
-        self._delegator = delegator or (SubagentDelegator(store) if store is not None else None)
+        self._delegator = delegator
         self._runner = runner
         self._max_concurrency = max_concurrency
 
@@ -72,7 +73,19 @@ class WorkerPool:
                 return await result
             return result
         if self._delegator is None:
-            raise RuntimeError("WorkerPool has no runner or delegator")
+            if self.store is None:
+                raise RuntimeError("WorkerPool has no runner, delegator, or store")
+            return await asyncio.to_thread(
+                ChildRunService(self.store).run,
+                ChildRunRequest(
+                    task=task.task,
+                    role_id=task.role_id,
+                    context=task.child_context,
+                    attempt_index=task.attempt_index,
+                    reason=task.reason,
+                    task_id=task.id,
+                ),
+            )
         return await asyncio.to_thread(
             self._delegator.dispatch,
             task=task.task,

@@ -19,6 +19,15 @@ from ..tool_runtime import ToolRegistry, create_default_registry
 if TYPE_CHECKING:
     from ..workers.context import ChildRunContext
 
+_FUTURE_SPAWN_TOOL_NAMES = {
+    "create_agent_team",
+    "run_agent_team",
+    "get_agent_team_status",
+    "create_agent_workflow",
+    "run_agent_workflow",
+    "get_agent_workflow_status",
+}
+
 
 @dataclass(frozen=True)
 class SubagentRole:
@@ -61,7 +70,9 @@ def _role_from_definition(definition: AgentDefinition) -> SubagentRole:
 
 def _roles() -> dict[str, SubagentRole]:
     tools_by_name = _tools_by_name()
-    resolver = AgentDefinitionResolver(known_tool_names=set(tools_by_name))
+    resolver = AgentDefinitionResolver(
+        known_tool_names=set(tools_by_name) | _FUTURE_SPAWN_TOOL_NAMES
+    )
     return {
         role_id: _role_from_definition(
             resolver.resolve(role_id, AgentResolutionContext())
@@ -106,7 +117,9 @@ def resolve_role(
     effective_workspace = (
         child_context.working_directory if child_context is not None else workspace_dir
     )
-    resolver = AgentDefinitionResolver(known_tool_names=set(_tools_by_name()))
+    resolver = AgentDefinitionResolver(
+        known_tool_names=set(_tools_by_name()) | _FUTURE_SPAWN_TOOL_NAMES
+    )
     definition = resolver.resolve(
         role_id,
         AgentResolutionContext(

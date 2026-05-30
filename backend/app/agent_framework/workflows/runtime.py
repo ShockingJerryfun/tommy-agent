@@ -7,6 +7,7 @@ from typing import Any
 
 from ..storage import PostgresAgentStore
 from ..workers import WorkerPool, WorkerRunner, WorkerTask
+from ..workers.context import merge_child_parent_metadata
 from .models import WorkflowPhaseSpec, WorkflowRunResult, WorkflowSpec
 from .reducers import join_outputs_for_reduce, truncate_text
 from .summary import workflow_summary_markdown
@@ -31,6 +32,7 @@ class WorkflowRuntime:
         parent_session_id: str,
         parent_run_id: str,
         inputs: dict[str, Any] | None = None,
+        parent_metadata: dict[str, Any] | None = None,
     ) -> WorkflowRunResult:
         resolved_inputs = dict(spec.inputs)
         if inputs:
@@ -71,6 +73,7 @@ class WorkflowRuntime:
                     workflow_run_id=workflow_run_id,
                     parent_session_id=parent_session_id,
                     parent_run_id=parent_run_id,
+                    parent_metadata=parent_metadata,
                     inputs=resolved_inputs,
                     phase_outputs=phase_outputs,
                 )
@@ -154,12 +157,21 @@ class WorkflowRuntime:
         workflow_run_id: str,
         parent_session_id: str,
         parent_run_id: str,
+        parent_metadata: dict[str, Any] | None,
         inputs: dict[str, Any],
         phase_outputs: dict[str, list[str]],
     ) -> list[WorkerTask]:
         items = self._phase_items(phase, inputs=inputs, phase_outputs=phase_outputs)
         tasks = []
         for index, item in enumerate(items):
+            metadata = merge_child_parent_metadata(
+                parent_metadata,
+                {
+                    "workflow_run_id": workflow_run_id,
+                    "workflow_phase_id": phase.id,
+                    "phase_run_id": phase_run_id,
+                },
+            )
             tasks.append(
                 WorkerTask(
                     id=f"{phase_run_id}:{index}",
@@ -168,13 +180,10 @@ class WorkflowRuntime:
                     reason=f"Workflow phase {phase.id}",
                     parent_session_id=parent_session_id,
                     parent_run_id=parent_run_id,
-                    agent_id="default",
-                    metadata={
-                        "workflow_run_id": workflow_run_id,
-                        "workflow_phase_id": phase.id,
-                        "phase_run_id": phase_run_id,
-                    },
+                    agent_id=str(metadata.get("agent_id") or "default"),
+                    metadata=metadata,
                     attempt_index=index,
+                    approval_id=str(metadata.get("approval_id") or ""),
                 )
             )
         return tasks

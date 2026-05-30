@@ -131,6 +131,9 @@ def context_pact_update(
 def delegate_task(task: str, target_agent: str = "researcher", reason: str = "") -> str:
     """Record or execute a bounded delegation request."""
     context = runtime_context()
+    from ..workers.context import parent_metadata_from_runtime_context
+
+    parent_metadata = parent_metadata_from_runtime_context(context)
     if context.get("approval_granted"):
         session_id = str(context.get("session_id") or "")
         parent_run_id = str((context.get("metadata") or {}).get("run_id") or "")
@@ -146,7 +149,7 @@ def delegate_task(task: str, target_agent: str = "researcher", reason: str = "")
                 ensure_ascii=False,
                 default=str,
             )
-        from ..orchestrator import run_delegate_task
+        from ..subagents.orchestrator import run_delegate_task
 
         return json.dumps(
             run_delegate_task(
@@ -157,6 +160,7 @@ def delegate_task(task: str, target_agent: str = "researcher", reason: str = "")
                 parent_run_id=parent_run_id,
                 approval_id=str(context.get("approval_id") or "unrestricted"),
                 agent_id=str(context.get("agent_id") or "default"),
+                parent_metadata=parent_metadata,
             ),
             ensure_ascii=False,
             default=str,
@@ -189,6 +193,9 @@ def create_agent_team(
     """Create a lead-controlled agent team with optional queued tasks."""
 
     context = runtime_context()
+    from ..workers.context import parent_metadata_from_runtime_context
+
+    parent_metadata = parent_metadata_from_runtime_context(context)
     if not context.get("approval_granted"):
         return json.dumps(
             {
@@ -222,6 +229,7 @@ def create_agent_team(
             for member in members
         ],
         metadata={
+            **parent_metadata,
             **(metadata or {}),
             "approval_id": str(context.get("approval_id") or ""),
             "source": "tool",
@@ -261,6 +269,9 @@ def run_agent_workflow(
     """Run a declarative YAML workflow through bounded worker agents."""
 
     context = runtime_context()
+    from ..workers.context import parent_metadata_from_runtime_context
+
+    parent_metadata = parent_metadata_from_runtime_context(context)
     if not context.get("approval_granted"):
         return json.dumps(
             {
@@ -287,6 +298,7 @@ def run_agent_workflow(
             parent_session_id=session_id,
             parent_run_id=parent_run_id,
             inputs=dict(inputs or {}),
+            parent_metadata=parent_metadata,
         )
     )
     child_refs = [

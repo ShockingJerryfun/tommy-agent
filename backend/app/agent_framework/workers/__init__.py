@@ -6,7 +6,12 @@ from .child_run_service import (
     ChildRunRequest,
     ChildRunService,
 )
-from .context import ChildRunContext, derive_child_context
+from .context import (
+    ChildRunContext,
+    derive_child_context,
+    merge_child_parent_metadata,
+    parent_metadata_from_runtime_context,
+)
 from .pool import WorkerPool
 from .runner import WorkerRunner
 from .types import WorkerResult, WorkerTask
@@ -20,4 +25,6 @@ __all__ = [
     "WorkerRunner",
     "WorkerTask",
     "derive_child_context",
+    "merge_child_parent_metadata",
+    "parent_metadata_from_runtime_context",
 ]

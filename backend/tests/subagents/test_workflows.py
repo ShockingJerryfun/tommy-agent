@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from app.agent_framework.storage import PostgresAgentStore
+from app.agent_framework.subagents import SubagentRole
+from app.agent_framework.tool_runtime import ToolRegistry
 from app.agent_framework.workers import WorkerResult, WorkerTask
 from app.agent_framework.workflows import (
     WorkflowRuntime,
@@ -39,6 +42,11 @@ def _new_session(store: PostgresAgentStore) -> tuple[str, str]:
 def _write_spec(path: Path, text: str) -> Path:
     path.write_text(text, encoding="utf-8")
     return path
+
+
+def _write_agent(path: Path, body: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(body, encoding="utf-8")
 
 
 def test_load_valid_yaml_workflow_spec(tmp_path: Path) -> None:
@@ -168,6 +176,81 @@ phases:
     assert run is not None
     assert run["status"] == "completed"
     assert "architect:" in result.summary
+
+
+@pytest.mark.asyncio
+async def test_workflow_default_worker_inherits_parent_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_agent(
+        tmp_path / ".tommy" / "agents" / "reviewer.md",
+        """---
+id: reviewer
+title: Workspace Reviewer
+tools:
+  - read_workspace_file
+---
+WORKSPACE REVIEWER PROMPT.
+""",
+    )
+    store = _store()
+    parent_session_id, parent_run_id = _new_session(store)
+    seen: dict[str, Any] = {}
+
+    def runner(
+        prompt: str,
+        registry: ToolRegistry,
+        role: SubagentRole,
+        thread_config: dict[str, Any],
+    ) -> dict[str, Any]:
+        seen["prompt"] = prompt
+        seen["role"] = role.title
+        seen["metadata"] = dict(thread_config["metadata"])
+        return {"final_response": "reviewed", "status": "completed"}
+
+    monkeypatch.setattr(
+        "app.agent_framework.workers.child_run_service.default_subagent_runner",
+        runner,
+    )
+    spec = load_workflow_spec(
+        _write_spec(
+            tmp_path / "workflow.yaml",
+            """
+id: review_flow
+name: Review Flow
+phases:
+  - id: review
+    kind: single
+    agent: reviewer
+    prompt: Review repository
+""",
+        )
+    )
+
+    result = await WorkflowRuntime(store).run(
+        spec,
+        parent_session_id=parent_session_id,
+        parent_run_id=parent_run_id,
+        parent_metadata={
+            "frontend_settings": {"workingDirectory": str(tmp_path), "commandScope": "restricted"},
+            "workingDirectory": str(tmp_path),
+            "commandScope": "restricted",
+            "permission_mode": "workspace_write",
+        },
+    )
+
+    assert result.status == "completed"
+    assert seen["role"] == "Workspace Reviewer"
+    assert "WORKSPACE REVIEWER PROMPT." in seen["prompt"]
+    rows = store.subagent_runs.list_for_session(parent_session_id)
+    assert len(rows) == 1
+    metadata = rows[0]["metadata"]
+    assert metadata["workflow_run_id"] == result.workflow_run_id
+    assert metadata["phase_run_id"]
+    assert metadata["workflow_phase_id"] == "review"
+    assert metadata["working_directory"] == str(tmp_path)
+    assert metadata["command_scope"] == "restricted"
 
 
 @pytest.mark.asyncio

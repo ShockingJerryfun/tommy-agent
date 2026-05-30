@@ -200,3 +200,92 @@ uv run pytest -q
 ```
 
 Expected: full suite passes or any pre-existing/environmental failure is documented with exact output.
+
+### Task 8: Runtime Context Inheritance Closure
+
+**Files:**
+- Modify: `backend/app/agent_framework/workers/context.py`
+- Modify: `backend/app/agent_framework/workers/types.py`
+- Modify: `backend/app/agent_framework/workers/child_run_service.py`
+- Modify: `backend/app/agent_framework/workers/pool.py`
+- Modify: `backend/app/agent_framework/subagents/delegate.py`
+- Modify: `backend/app/agent_framework/subagents/merger.py`
+- Modify: `backend/app/agent_framework/subagents/orchestrator.py`
+- Modify: `backend/app/agent_framework/tool_modules/collaboration.py`
+- Modify: `backend/app/agent_framework/teams/service.py`
+- Modify: `backend/app/agent_framework/workflows/runtime.py`
+- Test: `backend/tests/subagents/test_child_run_context.py`
+- Test: `backend/tests/subagents/test_child_run_service.py`
+- Test: `backend/tests/subagents/test_worker_pool.py`
+- Test: `backend/tests/subagents/test_subagents.py`
+- Test: `backend/tests/subagents/test_agent_teams.py`
+- Test: `backend/tests/subagents/test_workflows.py`
+- Test: `backend/tests/subagents/test_multi_agent_tools.py`
+
+- [ ] **Step 1: Write failing DT tests**
+
+Add targeted pytest cases before production code for:
+
+- `parent_metadata_from_runtime_context()` preserving runtime aliases, frontend settings, approval id, working directory, command scope, model, permission mode, budget, depth, team, and workflow lineage.
+- `merge_child_parent_metadata()` preserving existing fields while applying parent patches without dropping aliases.
+- `run_delegate_task(..., parent_metadata=...)` and `BestOfNMerger.run(..., parent_metadata=...)` forwarding workspace metadata so `.tommy/agents/reviewer.md` overrides are used.
+- `ChildRunRequest.task_id` causing `WorkerResult.task_id` to remain the original worker task id while `subagent_id` remains the persisted `subagent_runs.id`.
+- `WorkerPool(store=..., runner=None, delegator=None)` calling `ChildRunService` directly and preserving `WorkerTask.id`; explicit delegator and fake runner paths remain compatible.
+- `TeamService` and `WorkflowRuntime` merging parent runtime metadata into worker task metadata, allowing workspace agent overrides and persisting lineage plus `working_directory`/`command_scope`.
+- Child registries excluding `create_agent_team`, `run_agent_team`, `get_agent_team_status`, `run_agent_workflow`, `get_agent_workflow_status`, and `create_agent_workflow` even when workspace agents list those tools.
+- Permission tests using “narrows” naming and future permission modes ranked conservatively.
+
+- [ ] **Step 2: Run red DT tests**
+
+```bash
+cd backend
+uv run pytest -q \
+  tests/subagents/test_child_run_context.py \
+  tests/subagents/test_child_run_service.py \
+  tests/subagents/test_worker_pool.py \
+  tests/subagents/test_subagents.py \
+  tests/subagents/test_agent_teams.py \
+  tests/subagents/test_workflows.py \
+  tests/subagents/test_multi_agent_tools.py
+```
+
+Expected: failures in the new assertions because parent metadata helpers, direct WorkerPool `ChildRunService` default, original task id preservation, and Team/Workflow parent metadata propagation are not yet implemented.
+
+- [ ] **Step 3: Implement metadata normalization and forwarding**
+
+Add `parent_metadata_from_runtime_context()` and `merge_child_parent_metadata()` in `workers/context.py`. Normalize aliases without dropping originals, derive effective workspace from `frontend_settings.workingDirectory`/`workingDirectory`/`working_directory`, derive effective command scope from `commandScope`/`command_scope`, and keep approval id in metadata only. Extend `run_delegate_task()`, `BestOfNMerger.run()`, `SubagentDelegator.dispatch()`, `create_agent_team()`, and `run_agent_workflow()` to pass this parent metadata.
+
+- [ ] **Step 4: Implement child-run execution closure**
+
+Extend `ChildRunRequest` with `task_id`, return `WorkerResult.task_id = request.task_id or subagent_run_id`, and pass `WorkerTask.id` when `WorkerPool` calls `ChildRunService` directly. Refactor `WorkerPool` so custom runner wins, explicit delegator remains compatible, and no-runner/no-explicit-delegator uses `ChildRunService(store).run(...)`.
+
+- [ ] **Step 5: Implement Team and Workflow metadata propagation**
+
+Merge team/task metadata with parent metadata using the helper before constructing `WorkerTask`. Extend `WorkflowRuntime.run(..., parent_metadata=None)` and merge workflow lineage into each worker task. Preserve existing lineage fields and avoid permission or command scope widening by relying on `derive_child_context()`.
+
+- [ ] **Step 6: Run green DT tests**
+
+```bash
+cd backend
+uv run pytest -q \
+  tests/subagents/test_child_run_context.py \
+  tests/subagents/test_child_run_service.py \
+  tests/subagents/test_worker_pool.py \
+  tests/subagents/test_subagents.py \
+  tests/subagents/test_agent_teams.py \
+  tests/subagents/test_workflows.py \
+  tests/subagents/test_multi_agent_tools.py
+```
+
+Expected: all targeted context inheritance closure tests pass without live LLM calls.
+
+- [ ] **Step 7: Run required verification**
+
+```bash
+cd backend
+uv run pytest -q tests/subagents
+uv run pytest -q tests/prompt_context
+uv run ruff check .
+```
+
+Expected: all required checks pass, or exact failures are documented.

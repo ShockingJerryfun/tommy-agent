@@ -18,6 +18,7 @@ becomes ``"failed"`` and ``final_response`` is empty.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from ..storage import PostgresAgentStore
 from .delegate import SubagentDelegator, SubagentResult
@@ -65,6 +66,7 @@ class BestOfNMerger:
         reason: str = "",
         agent_id: str = "default",
         approval_id: str = "",
+        parent_metadata: dict[str, Any] | None = None,
     ) -> MergedSubagentResult:
         if n < 1:
             raise ValueError("n must be >= 1")
@@ -79,6 +81,7 @@ class BestOfNMerger:
                 reason=reason,
                 attempt_index=index,
                 approval_id=approval_id,
+                parent_metadata=parent_metadata,
             )
             attempts.append(attempt)
             if attempt.status == "stopped":

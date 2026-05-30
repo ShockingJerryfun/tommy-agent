@@ -89,6 +89,7 @@ def execute_approved_action(
 
     if tool_name == "delegate_task":
         from ..subagents import run_delegate_task
+        from ..workers.context import parent_metadata_from_runtime_context
 
         result = run_delegate_task(
             task=str(args.get("task") or ""),
@@ -98,6 +99,7 @@ def execute_approved_action(
             parent_run_id=str(approval.get("run_id") or ""),
             approval_id=str(approval.get("id") or ""),
             agent_id=str((context or {}).get("agent_id") or "default"),
+            parent_metadata=parent_metadata_from_runtime_context(runtime_context),
         )
         return json.dumps(result, ensure_ascii=False, default=str)
 

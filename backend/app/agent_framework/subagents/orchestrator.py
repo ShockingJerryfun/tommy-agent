@@ -6,6 +6,7 @@ from typing import Any
 
 from ..storage import get_agent_store
 from ..tool_runtime import ToolRegistry
+from ..workers.context import merge_child_parent_metadata
 from .delegate import SubagentDelegator, SubagentResult
 from .merger import BestOfNMerger
 from .roles import list_role_ids, registry_for_role
@@ -33,12 +34,21 @@ def run_delegate_task(
     approval_id: str,
     agent_id: str = "default",
     n_attempts: int = 1,
+    parent_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run a bounded read-only subagent and return the merged result."""
 
     role_id = _normalize_role(target_agent)
     store = get_agent_store()
     delegator = SubagentDelegator(store)
+    merged_parent_metadata = merge_child_parent_metadata(
+        parent_metadata,
+        {
+            "run_id": parent_run_id,
+            "agent_id": agent_id,
+            "approval_id": approval_id,
+        },
+    )
 
     if n_attempts > 1:
         merger = BestOfNMerger(store, delegator)
@@ -51,6 +61,7 @@ def run_delegate_task(
             reason=reason,
             agent_id=agent_id,
             approval_id=approval_id,
+            parent_metadata=merged_parent_metadata,
         )
         winner: SubagentResult | None = merged.winner
         return {
@@ -81,6 +92,7 @@ def run_delegate_task(
         agent_id=agent_id,
         reason=reason,
         approval_id=approval_id,
+        parent_metadata=merged_parent_metadata,
     )
     return {
         "status": result.status,

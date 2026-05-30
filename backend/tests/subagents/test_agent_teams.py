@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
+from typing import Any
 
 import pytest
 
 from app.agent_framework.storage import PostgresAgentStore
+from app.agent_framework.subagents import SubagentRole
 from app.agent_framework.teams import TeamService, team_summary_section
+from app.agent_framework.tool_runtime import ToolRegistry
 from app.agent_framework.workers import WorkerResult, WorkerTask
 
 
@@ -29,6 +33,11 @@ def _new_session(store: PostgresAgentStore) -> tuple[str, str]:
         status="running",
     )
     return session_id, run_id
+
+
+def _write_agent(path: Path, body: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(body, encoding="utf-8")
 
 
 @pytest.mark.asyncio
@@ -107,6 +116,76 @@ async def test_run_team_with_fake_worker_persists_results_and_summary() -> None:
     assert "Inspect graph" in summary
     assert "Review subagents" in summary
     assert "completed" in team_summary_section(store, parent_session_id=parent_session_id)
+
+
+@pytest.mark.asyncio
+async def test_run_team_default_worker_inherits_workspace_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_agent(
+        tmp_path / ".tommy" / "agents" / "reviewer.md",
+        """---
+id: reviewer
+title: Workspace Reviewer
+tools:
+  - read_workspace_file
+---
+WORKSPACE REVIEWER PROMPT.
+""",
+    )
+    store = _store()
+    parent_session_id, parent_run_id = _new_session(store)
+    seen: dict[str, Any] = {}
+
+    def runner(
+        prompt: str,
+        registry: ToolRegistry,
+        role: SubagentRole,
+        thread_config: dict[str, Any],
+    ) -> dict[str, Any]:
+        seen["prompt"] = prompt
+        seen["role"] = role.title
+        seen["metadata"] = dict(thread_config["metadata"])
+        return {"final_response": "reviewed", "status": "completed"}
+
+    monkeypatch.setattr(
+        "app.agent_framework.workers.child_run_service.default_subagent_runner",
+        runner,
+    )
+
+    service = TeamService(store)
+    team = service.create_team(
+        parent_session_id=parent_session_id,
+        parent_run_id=parent_run_id,
+        goal="Review runtime",
+        members=[{"role": "reviewer", "agent_definition_id": "reviewer"}],
+        metadata={
+            "approval_id": "approval-1",
+            "frontend_settings": {"workingDirectory": str(tmp_path), "commandScope": "restricted"},
+            "workingDirectory": str(tmp_path),
+            "commandScope": "restricted",
+            "model": "deepseek-chat",
+            "permission_mode": "workspace_write",
+            "budget": {"max_turns": 3},
+            "depth": 1,
+        },
+    )
+    task = service.create_task(team["id"], title="Review code", description="Review the runtime")
+
+    result = await service.run_team(team["id"])
+
+    assert result["status"] == "completed"
+    assert seen["role"] == "Workspace Reviewer"
+    assert "WORKSPACE REVIEWER PROMPT." in seen["prompt"]
+    rows = store.subagent_runs.list_for_session(parent_session_id)
+    assert len(rows) == 1
+    metadata = rows[0]["metadata"]
+    assert metadata["team_id"] == team["id"]
+    assert metadata["team_task_id"] == task["id"]
+    assert metadata["working_directory"] == str(tmp_path)
+    assert metadata["command_scope"] == "restricted"
+    assert metadata["permission_mode"] == "workspace_write"
 
 
 @pytest.mark.asyncio
