@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import logging
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -33,6 +35,7 @@ _RECURSIVE_TOOL_NAMES = {
     "run_agent_team",
     "run_agent_workflow",
 }
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -149,6 +152,15 @@ class ChildRunService:
         )
 
         prompt = _build_prompt(role=role, task=request.task, reason=request.reason)
+        _record_prompt_snapshot_best_effort(
+            store=self.store,
+            child_session_id=child_session_id,
+            subagent_run_id=record["id"],
+            context=context,
+            role=role,
+            prompt=prompt,
+            metadata=metadata,
+        )
         thread_config = {
             "configurable": {"thread_id": child_session_id},
             "metadata": metadata,
@@ -213,6 +225,88 @@ def _build_prompt(*, role: SubagentRole, task: str, reason: str) -> str:
         f"Reason for delegation: {reason or 'not specified'}\n\n"
         f"Task:\n{task}"
     )
+
+
+def _record_prompt_snapshot(
+    *,
+    store: PostgresAgentStore,
+    child_session_id: str,
+    subagent_run_id: str,
+    context: ChildRunContext,
+    role: SubagentRole,
+    prompt: str,
+    metadata: dict[str, Any],
+) -> None:
+    store.record_prompt_snapshot(
+        session_id=child_session_id,
+        agent_id=context.parent_agent_id,
+        run_id=subagent_run_id,
+        model=str(metadata.get("model") or role.model or ""),
+        total_chars=len(prompt),
+        section_count=1,
+        truncated_count=0,
+        dropped_count=0,
+        content_sha256=hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+        sections=[
+            {
+                "name": "subagent_task_prompt",
+                "title": f"{role.title} Task Prompt",
+                "source": "child_run_service",
+                "priority": 100,
+                "render_order": 10,
+                "budget_chars": len(prompt),
+                "min_chars": 0,
+                "required": True,
+                "char_count": len(prompt),
+                "original_chars": len(prompt),
+                "truncated": False,
+                "dropped": False,
+                "preview": prompt[:360].rstrip(),
+            }
+        ],
+        budget={
+            "requested_chars": len(prompt),
+            "granted_chars": len(prompt),
+            "max_chars": len(prompt),
+            "section_count": 1,
+            "truncated_count": 0,
+            "dropped_count": 0,
+        },
+        metadata={
+            "source": "child_run_service",
+            "role_id": role.id,
+            "subagent_role": context.subagent_role,
+        },
+        injections=None,
+    )
+
+
+def _record_prompt_snapshot_best_effort(
+    *,
+    store: PostgresAgentStore,
+    child_session_id: str,
+    subagent_run_id: str,
+    context: ChildRunContext,
+    role: SubagentRole,
+    prompt: str,
+    metadata: dict[str, Any],
+) -> None:
+    try:
+        _record_prompt_snapshot(
+            store=store,
+            child_session_id=child_session_id,
+            subagent_run_id=subagent_run_id,
+            context=context,
+            role=role,
+            prompt=prompt,
+            metadata=metadata,
+        )
+    except Exception as exc:  # noqa: BLE001 - prompt audit must not orphan child runs.
+        logger.warning(
+            "Unable to persist child prompt snapshot for subagent run %s: %s",
+            subagent_run_id,
+            exc,
+        )
 
 
 def _apply_recursion_guard(registry: ToolRegistry, context: ChildRunContext) -> ToolRegistry:

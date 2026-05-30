@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import threading
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -35,7 +36,7 @@ class CancellationToken:
 class BackgroundRunHandle:
     run_id: str
     kind: str
-    task: asyncio.Task[Any]
+    task: Any
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -53,9 +54,12 @@ class BackgroundRunQueue:
     ) -> None:
         self._status_writer = status_writer
         self._orphan_provider = orphan_provider
-        self._tasks: dict[str, asyncio.Task[Any]] = {}
+        self._tasks: dict[str, Any] = {}
         self._tokens: dict[str, CancellationToken] = {}
         self._statuses: dict[str, dict[str, Any]] = {}
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._loop_thread: threading.Thread | None = None
+        self._loop_lock = threading.Lock()
 
     def enqueue(
         self,
@@ -70,9 +74,13 @@ class BackgroundRunQueue:
         run_metadata = dict(metadata or {})
         self._tokens[run_id] = token
         self._set_status(run_id, kind, "queued", run_metadata)
-        task = asyncio.create_task(
-            self._run(run_id, kind, token, coroutine_factory, run_metadata)
-        )
+        coroutine = self._run(run_id, kind, token, coroutine_factory, run_metadata)
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            task = asyncio.run_coroutine_threadsafe(coroutine, self._ensure_background_loop())
+        else:
+            task = loop.create_task(coroutine)
         self._tasks[run_id] = task
         return BackgroundRunHandle(run_id=run_id, kind=kind, task=task, metadata=run_metadata)
 
@@ -113,7 +121,7 @@ class BackgroundRunQueue:
                 continue
             kind = str(row.get("kind") or "")
             metadata = {"reason": "Background process restarted while run was active."}
-            self._set_status(run_id, kind, "interrupted", metadata, sync=True)
+            self._set_status(run_id, kind, "interrupted", metadata, wait=True)
         return len(rows)
 
     async def _run(
@@ -154,7 +162,7 @@ class BackgroundRunQueue:
         status: str,
         metadata: dict[str, Any],
         *,
-        sync: bool = False,
+        wait: bool = False,
     ) -> None:
         current = dict(self._statuses.get(run_id) or {})
         current.update(metadata)
@@ -170,7 +178,28 @@ class BackgroundRunQueue:
             return
         result = self._status_writer(run_id, status, current)
         if inspect.isawaitable(result):
-            if sync:
-                asyncio.run(result)
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                future = asyncio.run_coroutine_threadsafe(
+                    result,
+                    self._ensure_background_loop(),
+                )
+                if wait:
+                    future.result(timeout=5)
             else:
-                asyncio.create_task(result)
+                loop.create_task(result)
+
+    def _ensure_background_loop(self) -> asyncio.AbstractEventLoop:
+        with self._loop_lock:
+            if self._loop is not None and self._loop.is_running():
+                return self._loop
+            loop = asyncio.new_event_loop()
+            self._loop = loop
+            self._loop_thread = threading.Thread(
+                target=loop.run_forever,
+                name="tommy-background-runs",
+                daemon=True,
+            )
+            self._loop_thread.start()
+            return loop

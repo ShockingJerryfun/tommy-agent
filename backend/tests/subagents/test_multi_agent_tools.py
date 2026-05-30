@@ -166,10 +166,20 @@ def test_create_agent_team_tool_creates_team_when_approved() -> None:
     assert team["metadata"]["permission_mode"] == "read_only"
 
 
-def test_run_agent_team_tool_enqueues_and_status_can_be_polled() -> None:
+def test_run_agent_team_tool_enqueues_and_status_can_be_polled(monkeypatch) -> None:
     store = _store()
     session_id, run_id = _new_session(store)
     registry = create_default_registry()
+    enqueued: list[tuple[str, str]] = []
+
+    class FakeQueue:
+        def enqueue(self, run_id: str, kind: str, coroutine_factory, metadata=None):
+            enqueued.append((run_id, kind))
+            return {"run_id": run_id, "kind": kind}
+
+    import app.agent_framework.tool_modules.collaboration as collaboration
+
+    monkeypatch.setattr(collaboration, "_BACKGROUND_QUEUE", FakeQueue(), raising=False)
     created = json.loads(
         registry.invoke(
             "create_agent_team",
@@ -216,6 +226,7 @@ def test_run_agent_team_tool_enqueues_and_status_can_be_polled() -> None:
 
     assert running["status"] in {"queued", "running"}
     assert running["team_run_id"].startswith("team-run-")
+    assert enqueued == [(running["team_run_id"], "team")]
     status = json.loads(
         registry.invoke(
             "get_agent_team_status",
@@ -313,10 +324,22 @@ phases:
     assert payload["summary"]
 
 
-def test_run_agent_workflow_tool_enqueues_when_approved_and_status_can_be_polled() -> None:
+def test_run_agent_workflow_tool_enqueues_when_approved_and_status_can_be_polled(
+    monkeypatch,
+) -> None:
     store = _store()
     session_id, run_id = _new_session(store)
     registry = create_default_registry()
+    enqueued: list[tuple[str, str]] = []
+
+    class FakeQueue:
+        def enqueue(self, run_id: str, kind: str, coroutine_factory, metadata=None):
+            enqueued.append((run_id, kind))
+            return {"run_id": run_id, "kind": kind}
+
+    import app.agent_framework.tool_modules.collaboration as collaboration
+
+    monkeypatch.setattr(collaboration, "_BACKGROUND_QUEUE", FakeQueue(), raising=False)
 
     payload = json.loads(
         registry.invoke(
@@ -343,6 +366,7 @@ phases:
 
     assert payload["status"] in {"queued", "running"}
     assert payload["workflow_run_id"].startswith("workflow-")
+    assert enqueued == [(payload["workflow_run_id"], "workflow")]
     status = json.loads(
         registry.invoke(
             "get_agent_workflow_status",

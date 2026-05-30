@@ -170,6 +170,8 @@ def derive_child_context(
     requested_permission = _permission_value(
         override_values.get("permission_mode", base_permission)
     )
+    _reject_scope_widening(base_command_scope, requested_command_scope)
+    _reject_permission_widening(base_permission, requested_permission)
 
     working_directory = str(
         override_values.get(
@@ -423,6 +425,11 @@ def _narrow_scope(base: str, requested: str) -> str:
     return "unrestricted"
 
 
+def _reject_scope_widening(base: str, requested: str) -> None:
+    if base == "restricted" and requested == "unrestricted":
+        raise ValueError("child command_scope cannot be wider than parent")
+
+
 def _permission_value(value: Any) -> str:
     text = str(value or "read_only").strip()
     return text if text in _PERMISSION_RANK else "read_only"
@@ -432,3 +439,8 @@ def _narrow_permission(base: str, requested: str) -> str:
     base_rank = _PERMISSION_RANK.get(base, 0)
     requested_rank = _PERMISSION_RANK.get(requested, 0)
     return requested if requested_rank <= base_rank else base
+
+
+def _reject_permission_widening(base: str, requested: str) -> None:
+    if _PERMISSION_RANK.get(requested, 0) > _PERMISSION_RANK.get(base, 0):
+        raise ValueError("child permission_mode cannot be wider than parent")

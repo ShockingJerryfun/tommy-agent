@@ -124,13 +124,53 @@ WORKSPACE REVIEWER PROMPT.
         role_id="reviewer",
     )
 
-    ChildRunService(store, runner=runner).run(
+    result = ChildRunService(store, runner=runner).run(
         ChildRunRequest(task="review code", role_id="reviewer", context=context)
     )
 
     assert "WORKSPACE REVIEWER PROMPT." in seen["prompt"]
     assert seen["role_title"] == "Workspace Reviewer"
     assert seen["tool_names"] == {"read_workspace_file"}
+    snapshots = store.list_prompt_snapshots(
+        session_id=result.child_session_id,
+        run_id=result.subagent_id,
+    )
+    assert len(snapshots) == 1
+    assert snapshots[0]["sections"][0]["name"] == "subagent_task_prompt"
+    assert "WORKSPACE REVIEWER PROMPT." in snapshots[0]["sections"][0]["preview"]
+
+
+def test_child_run_service_snapshot_failure_does_not_orphan_run(
+    monkeypatch: Any,
+) -> None:
+    store = _store()
+    parent_session_id, parent_run_id = _new_session(store)
+    called = False
+
+    def fail_snapshot(**_: Any) -> dict[str, Any]:
+        raise RuntimeError("snapshot table unavailable")
+
+    def runner(*_: Any, **__: Any) -> dict[str, Any]:
+        nonlocal called
+        called = True
+        return {"final_response": "ok", "status": "completed"}
+
+    monkeypatch.setattr(store, "record_prompt_snapshot", fail_snapshot)
+    context = derive_child_context(
+        parent_session_id=parent_session_id,
+        parent_run_id=parent_run_id,
+        role_id="researcher",
+    )
+
+    result = ChildRunService(store, runner=runner).run(
+        ChildRunRequest(task="research", role_id="researcher", context=context)
+    )
+
+    assert called is True
+    assert result.status == "completed"
+    row = store.subagent_runs.list_for_session(parent_session_id)[0]
+    assert row["id"] == result.subagent_id
+    assert row["status"] == "completed"
 
 
 def test_child_run_service_blocks_team_and_workflow_tools_for_child_runs(

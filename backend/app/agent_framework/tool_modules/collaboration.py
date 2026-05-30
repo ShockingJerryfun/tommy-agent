@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 from typing import Literal
 
@@ -571,11 +570,6 @@ def _background_queue():
 
 
 def _enqueue_team_run(store, team_run_id: str, *, max_concurrency: int) -> None:
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return
-
     from ..teams import TeamRuntime
 
     async def run(token):
@@ -595,11 +589,6 @@ def _enqueue_workflow_run(
     inputs: dict[str, object],
     parent_metadata: dict[str, object],
 ) -> None:
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return
-
     from ..workflows import WorkflowRuntime, load_workflow_spec_text
 
     spec = load_workflow_spec_text(workflow_yaml)

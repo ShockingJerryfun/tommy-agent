@@ -43,39 +43,35 @@ def test_child_context_inherits_restricted_command_scope() -> None:
     assert context.command_scope == "restricted"
 
 
-def test_child_context_narrows_unrestricted_scope_request() -> None:
-    context = derive_child_context(
-        parent_session_id="sess-1",
-        parent_run_id="run-1",
-        parent_metadata={"frontend_settings": {"commandScope": "restricted"}},
-        overrides={"command_scope": "unrestricted"},
-    )
+def test_child_context_rejects_unrestricted_scope_request() -> None:
+    with pytest.raises(ValueError, match="command_scope"):
+        derive_child_context(
+            parent_session_id="sess-1",
+            parent_run_id="run-1",
+            parent_metadata={"frontend_settings": {"commandScope": "restricted"}},
+            overrides={"command_scope": "unrestricted"},
+        )
 
-    assert context.command_scope == "restricted"
 
-
-def test_child_context_narrows_permission_widening_request() -> None:
-    context = derive_child_context(
-        parent_session_id="sess-1",
-        parent_run_id="run-1",
-        parent_metadata={"permission_mode": "read_only"},
-        overrides={"permission_mode": "workspace_write"},
-    )
-
-    assert context.permission_mode == "read_only"
+def test_child_context_rejects_permission_widening_request() -> None:
+    with pytest.raises(ValueError, match="permission_mode"):
+        derive_child_context(
+            parent_session_id="sess-1",
+            parent_run_id="run-1",
+            parent_metadata={"permission_mode": "read_only"},
+            overrides={"permission_mode": "workspace_write"},
+        )
 
 
 @pytest.mark.parametrize(
     ("parent_mode", "requested_mode", "expected_mode"),
     [
-        ("read_only", "test_runner", "read_only"),
         ("test_runner", "workspace_patch", "workspace_patch"),
         ("workspace_write", "workflow_lead", "workflow_lead"),
-        ("workflow_lead", "admin", "workflow_lead"),
         ("admin", "danger_full_access", "danger_full_access"),
     ],
 )
-def test_child_context_narrows_future_permission_modes_by_rank(
+def test_child_context_allows_non_widening_future_permission_modes_by_rank(
     parent_mode: str,
     requested_mode: str,
     expected_mode: str,
@@ -88,6 +84,26 @@ def test_child_context_narrows_future_permission_modes_by_rank(
     )
 
     assert context.permission_mode == expected_mode
+
+
+@pytest.mark.parametrize(
+    ("parent_mode", "requested_mode"),
+    [
+        ("read_only", "test_runner"),
+        ("workflow_lead", "admin"),
+    ],
+)
+def test_child_context_rejects_future_permission_widening_by_rank(
+    parent_mode: str,
+    requested_mode: str,
+) -> None:
+    with pytest.raises(ValueError, match="permission_mode"):
+        derive_child_context(
+            parent_session_id="sess-1",
+            parent_run_id="run-1",
+            parent_metadata={"permission_mode": parent_mode},
+            overrides={"permission_mode": requested_mode},
+        )
 
 
 def test_child_context_depth_increments_from_parent_metadata() -> None:
