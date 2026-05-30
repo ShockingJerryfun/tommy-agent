@@ -11,6 +11,7 @@ from ..runtime.event_bridge import EventBridge
 from ..storage import PostgresAgentStore
 from ..workers import WorkerRunner, WorkerTask
 from ..workers.context import merge_child_parent_metadata
+from .cache import workflow_worker_input_hash
 from .models import WorkflowPhaseSpec, WorkflowRunResult, WorkflowSpec
 from .phase_runner import PhaseRunner
 from .reducers import join_outputs_for_reduce, truncate_text
@@ -125,19 +126,44 @@ class WorkflowRuntime:
         )
 
         phase_outputs: dict[str, list[str]] = {}
+        existing_phase_runs = {
+            phase_run["phase_id"]: phase_run
+            for phase_run in self.store.workflow_phase_runs.list_for_run(workflow_run_id)
+        }
         worker_count = 0
         workflow_status = "completed"
         try:
             for phase in spec.phases:
                 cancellation_token.raise_if_cancelled()
-                phase_run = self.store.workflow_phase_runs.create(
+                existing_phase_run = existing_phase_runs.get(phase.id)
+                if existing_phase_run and existing_phase_run["status"] == "completed":
+                    phase_outputs[phase.id] = list(existing_phase_run.get("outputs") or [])
+                    self._events.emit_workflow_event(
+                        "workflow_phase_skipped",
+                        session_id=parent_session_id,
+                        parent_run_id=parent_run_id,
+                        workflow_run_id=workflow_run_id,
+                        phase_run_id=existing_phase_run["id"],
+                        workflow_phase_id=phase.id,
+                        status="completed",
+                        payload={"reason": "completed_phase_reused"},
+                    )
+                    continue
+
+                phase_run = existing_phase_run or self.store.workflow_phase_runs.create(
                     workflow_run_id=workflow_run_id,
                     phase_id=phase.id,
                     kind=phase.kind,
                     agent=phase.agent,
                     metadata=phase.metadata,
                 )
-                self.store.workflow_phase_runs.update(phase_run["id"], status="running")
+                self.store.workflow_phase_runs.update(
+                    phase_run["id"],
+                    status="running",
+                    outputs=[],
+                    error_type="",
+                    error_message="",
+                )
                 self._events.emit_workflow_event(
                     "workflow_phase_started",
                     session_id=parent_session_id,
@@ -149,6 +175,7 @@ class WorkflowRuntime:
                 )
                 worker_tasks = self._build_worker_tasks(
                     phase=phase,
+                    workflow_spec_id=spec.id,
                     phase_run_id=phase_run["id"],
                     workflow_run_id=workflow_run_id,
                     parent_session_id=parent_session_id,
@@ -191,6 +218,15 @@ class WorkflowRuntime:
                         output=truncate_text(result.final_response, 2000),
                         subagent_run_id=result.subagent_id,
                         child_session_id=result.child_session_id,
+                        cache_key=str(result.metadata.get("cache_key") or "")
+                        if result.metadata
+                        else "",
+                        input_hash=str(result.metadata.get("input_hash") or "")
+                        if result.metadata
+                        else "",
+                        cache_hit=bool(result.metadata.get("cache_hit"))
+                        if result.metadata
+                        else False,
                         error_type=str(result.metadata.get("error_type") or "")
                         if result.metadata
                         else "",
@@ -307,6 +343,7 @@ class WorkflowRuntime:
         self,
         *,
         phase: WorkflowPhaseSpec,
+        workflow_spec_id: str,
         phase_run_id: str,
         workflow_run_id: str,
         parent_session_id: str,
@@ -318,19 +355,29 @@ class WorkflowRuntime:
         items = self._phase_items(phase, inputs=inputs, phase_outputs=phase_outputs)
         tasks = []
         for index, item in enumerate(items):
+            prompt = self._render_prompt(phase.prompt, item=item, inputs=inputs)
+            input_hash = workflow_worker_input_hash(
+                role_id=phase.agent,
+                prompt=prompt,
+                workflow_spec_id=workflow_spec_id,
+                workflow_phase_id=phase.id,
+                item=item,
+            )
             metadata = merge_child_parent_metadata(
                 parent_metadata,
                 {
                     "workflow_run_id": workflow_run_id,
                     "workflow_phase_id": phase.id,
                     "phase_run_id": phase_run_id,
+                    "input_hash": input_hash,
+                    "cache_key": input_hash,
                 },
             )
             tasks.append(
                 WorkerTask(
                     id=f"{phase_run_id}:{index}",
                     role_id=phase.agent,
-                    task=self._render_prompt(phase.prompt, item=item, inputs=inputs),
+                    task=prompt,
                     reason=f"Workflow phase {phase.id}",
                     parent_session_id=parent_session_id,
                     parent_run_id=parent_run_id,

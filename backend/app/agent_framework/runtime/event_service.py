@@ -224,7 +224,24 @@ class RunEventService:
                 yield event
 
             while True:
-                event = await queue.get()
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=0.75)
+                except TimeoutError:
+                    history = self._store.list_run_events_after(
+                        run_id,
+                        after_sequence=last_sequence,
+                        limit=100,
+                    )
+                    for row in history:
+                        event = self.event_from_stored_event(row)
+                        last_sequence = int(row["sequence"])
+                        yield event
+                        if event.type in TERMINAL_EVENT_TYPES:
+                            return
+                    run = self._store.get_run(run_id)
+                    if run and run["status"] in TERMINAL_RUN_STATUSES:
+                        return
+                    continue
                 sequence = event.data.get("sequence")
                 if isinstance(sequence, int) and last_sequence is not None:
                     if sequence <= last_sequence:

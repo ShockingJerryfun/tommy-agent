@@ -78,8 +78,21 @@ class TeamRuntime:
 
         latest_tasks = self.store.agent_team_tasks.list_for_team(team["id"])
         status = team_status_from_task_statuses([task["status"] for task in latest_tasks])
-        summary = team_summary_markdown(team=team, tasks=latest_tasks, max_chars=1800)
+        summary = team_summary_markdown(
+            team={**team, "status": status},
+            tasks=latest_tasks,
+            max_chars=1800,
+        )
         if status == "completed":
+            summary_result = await self._run_lead_synthesis(team, team_run, latest_tasks)
+            if summary_result.status == "completed" and summary_result.final_response.strip():
+                summary = _truncate(summary_result.final_response, 1800)
+            else:
+                status = "failed"
+                summary = _truncate(
+                    f"{summary}\n\nLead synthesis failed: {summary_result.final_response}",
+                    1800,
+                )
             self._mailbox.post(
                 team_id=team["id"],
                 from_member_id=team.get("lead_member_id") or "",
@@ -103,6 +116,43 @@ class TeamRuntime:
             summary=summary,
             finished=True,
         ) or {}
+
+    async def _run_lead_synthesis(
+        self,
+        team: dict[str, Any],
+        team_run: dict[str, Any],
+        tasks: list[dict[str, Any]],
+    ) -> WorkerResult:
+        lead_member = self._lead_member(team)
+        self._events.emit_team_event(
+            "team_synthesis_started",
+            session_id=team_run["parent_session_id"],
+            parent_run_id=team_run["parent_run_id"],
+            team_run_id=team_run["id"],
+            team_id=team["id"],
+            status="running",
+        )
+        results = await WorkerPool(
+            store=self.store,
+            runner=self._worker_runner,
+            max_concurrency=1,
+        ).run([self._lead_synthesis_task(team, team_run, tasks, lead_member)])
+        result = results[0]
+        self._events.emit_team_event(
+            "team_synthesis_completed"
+            if result.status == "completed"
+            else "team_synthesis_failed",
+            session_id=team_run["parent_session_id"],
+            parent_run_id=team_run["parent_run_id"],
+            team_run_id=team_run["id"],
+            team_id=team["id"],
+            status=result.status,
+            payload={
+                "subagent_run_id": result.subagent_id,
+                "child_session_id": result.child_session_id,
+            },
+        )
+        return result
 
     def _ensure_tasks(self, team: dict[str, Any]) -> None:
         existing = self.store.agent_team_tasks.list_for_team(team["id"])
@@ -253,6 +303,59 @@ class TeamRuntime:
             metadata=metadata,
             approval_id=str(metadata.get("approval_id") or ""),
         )
+
+    def _lead_synthesis_task(
+        self,
+        team: dict[str, Any],
+        team_run: dict[str, Any],
+        tasks: list[dict[str, Any]],
+        lead_member: dict[str, Any],
+    ) -> WorkerTask:
+        metadata = merge_child_parent_metadata(
+            team.get("metadata") if isinstance(team.get("metadata"), dict) else {},
+            {
+                "team_id": team["id"],
+                "team_run_id": team_run["id"],
+                "approval_id": team_run.get("approval_id") or "",
+            },
+        )
+        task_lines = [
+            f"- {task['title']} [{task['status']}]: {task.get('result_summary') or ''}"
+            for task in tasks
+        ]
+        prompt = "\n\n".join(
+            [
+                "Synthesize the final team result for the parent user.",
+                f"Team goal: {team['goal']}",
+                "Task results:\n" + "\n".join(task_lines),
+                self._board.bounded_section(team["id"]),
+                self._mailbox.bounded_section(team["id"]),
+                "Return a concise final answer with decisions, evidence, and remaining risks.",
+            ]
+        )
+        return WorkerTask(
+            id=f"{team_run['id']}:synthesis",
+            role_id=lead_member["agent_definition_id"],
+            task=prompt,
+            reason=f"Team lead synthesis: {team['goal']}",
+            parent_session_id=team_run["parent_session_id"],
+            parent_run_id=team_run["parent_run_id"],
+            agent_id=str(metadata.get("agent_id") or "default"),
+            metadata=metadata,
+            approval_id=str(metadata.get("approval_id") or ""),
+        )
+
+    def _lead_member(self, team: dict[str, Any]) -> dict[str, Any]:
+        lead_member_id = str(team.get("lead_member_id") or "")
+        if lead_member_id:
+            lead = self.store.agent_team_members.get(lead_member_id)
+            if lead is not None:
+                return lead
+        members = self.store.agent_team_members.list_for_team(team["id"])
+        for member in members:
+            if member["role"] == "lead":
+                return member
+        return members[0]
 
     def _select_member(self, team_id: str, assigned_role: str | None) -> dict[str, Any]:
         members = self.store.agent_team_members.list_for_team(team_id)

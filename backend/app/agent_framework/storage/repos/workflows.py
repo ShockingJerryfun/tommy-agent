@@ -379,6 +379,22 @@ class WorkflowWorkerRunRepo:
             ).fetchall()
         return [_hydrate_worker(row) for row in rows]
 
+    def get_completed_by_input_hash(self, input_hash: str) -> dict[str, Any] | None:
+        if not input_hash:
+            return None
+        with self._connector.connect() as conn:
+            row = conn.execute(
+                f"""
+                SELECT {self.SELECT_COLUMNS}
+                FROM workflow_worker_runs
+                WHERE input_hash = ? AND status = 'completed'
+                ORDER BY finished_at DESC, created_at DESC
+                LIMIT 1
+                """,
+                (input_hash,),
+            ).fetchone()
+        return _hydrate_worker(row) if row is not None else None
+
 
 def _hydrate_run(row: Any) -> dict[str, Any]:
     return dict(row) | {

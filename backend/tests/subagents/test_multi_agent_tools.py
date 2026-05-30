@@ -376,3 +376,67 @@ phases:
     )
     assert status["workflow_run_id"] == payload["workflow_run_id"]
     assert "phases" in status
+
+
+def test_rerun_failed_workflow_phase_reenqueues_existing_workflow(monkeypatch) -> None:
+    store = _store()
+    session_id, run_id = _new_session(store)
+    workflow_yaml = """
+id: audit
+name: Audit
+phases:
+  - id: inspect
+    kind: single
+    agent: explorer
+    prompt: Inspect repository
+"""
+    workflow_run = store.workflow_runs.create(
+        spec_id="audit",
+        parent_session_id=session_id,
+        parent_run_id=run_id,
+        metadata={"workflow_yaml": workflow_yaml},
+    )
+    phase_run = store.workflow_phase_runs.create(
+        workflow_run_id=workflow_run["id"],
+        phase_id="inspect",
+        kind="single",
+        agent="explorer",
+    )
+    store.workflow_phase_runs.update(
+        phase_run["id"],
+        status="failed",
+        outputs=["failed"],
+        finished=True,
+    )
+    store.workflow_runs.update(workflow_run["id"], status="failed", finished=True)
+    enqueued: list[tuple[str, str]] = []
+
+    class FakeQueue:
+        def enqueue(self, queued_run_id: str, kind: str, coroutine_factory, metadata=None):
+            enqueued.append((queued_run_id, kind))
+            return {"run_id": queued_run_id, "kind": kind}
+
+    import app.agent_framework.tool_modules.collaboration as collaboration
+
+    monkeypatch.setattr(collaboration, "_BACKGROUND_QUEUE", FakeQueue(), raising=False)
+
+    payload = json.loads(
+        create_default_registry().invoke(
+            "rerun_failed_workflow_phase",
+            {
+                "workflow_run_id": workflow_run["id"],
+                "phase_run_id": phase_run["id"],
+            },
+            context={
+                "session_id": session_id,
+                "run_id": run_id,
+                "approval_granted": True,
+                "approval_id": "appr-rerun",
+            },
+        )
+    )
+
+    assert payload["status"] == "queued"
+    assert enqueued == [(workflow_run["id"], "workflow")]
+    assert store.workflow_runs.get(workflow_run["id"])["status"] == "queued"
+    assert store.workflow_phase_runs.get(phase_run["id"])["status"] == "queued"

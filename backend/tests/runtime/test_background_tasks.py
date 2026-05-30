@@ -30,6 +30,26 @@ async def test_background_queue_returns_handle_and_persists_success() -> None:
 
 
 @pytest.mark.asyncio
+async def test_background_queue_preserves_business_failure_status() -> None:
+    statuses: list[tuple[str, str]] = []
+
+    async def mark_status(run_id: str, status: str, metadata: dict[str, object]) -> None:
+        statuses.append((run_id, status))
+
+    queue = BackgroundRunQueue(status_writer=mark_status)
+
+    async def work(token) -> dict[str, str]:
+        assert not token.cancelled
+        return {"status": "failed", "summary": "child run failed"}
+
+    handle = queue.enqueue("team-run-business-fail", "team", lambda token: work(token))
+
+    await handle.task
+    assert queue.get_status("team-run-business-fail")["status"] == "failed"
+    assert statuses[-1] == ("team-run-business-fail", "failed")
+
+
+@pytest.mark.asyncio
 async def test_background_queue_cancellation_stops_future_work() -> None:
     started = asyncio.Event()
     release = asyncio.Event()

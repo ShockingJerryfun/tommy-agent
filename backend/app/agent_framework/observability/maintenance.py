@@ -22,6 +22,7 @@ import logging
 import os
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 logger = logging.getLogger("tommy.observability.maintenance")
@@ -165,6 +166,16 @@ def default_maintenance_jobs(store: Any) -> list[MaintenanceJob]:
             forge = SkillForge(store=store)
             run_nightly(agent_id=agent_id, forge=forge)
 
+    def multi_agent_retention() -> None:
+        max_child_output_chars = int(os.getenv("TOMMY_CHILD_OUTPUT_MAX_CHARS", "4000"))
+        event_ttl_days = int(os.getenv("TOMMY_RUN_EVENT_TTL_DAYS", "30"))
+        artifact_gc_limit = int(os.getenv("TOMMY_ARTIFACT_GC_LIMIT", "200"))
+        event_gc_limit = int(os.getenv("TOMMY_RUN_EVENT_GC_LIMIT", "1000"))
+        store.subagent_runs.truncate_large_child_outputs(max_chars=max_child_output_chars)
+        store.artifacts.delete_orphan_artifacts(limit=artifact_gc_limit)
+        cutoff = datetime.now(UTC) - timedelta(days=max(1, event_ttl_days))
+        store.events.delete_events_before(cutoff.isoformat(), limit=event_gc_limit)
+
     jobs = [
         MaintenanceJob(
             name="memory.apply_decay",
@@ -175,6 +186,11 @@ def default_maintenance_jobs(store: Any) -> list[MaintenanceJob]:
             name="approvals.cleanup_stale",
             interval_seconds=30 * 60,
             body=approvals_cleanup,
+        ),
+        MaintenanceJob(
+            name="multi_agent.retention",
+            interval_seconds=6 * 60 * 60,
+            body=multi_agent_retention,
         ),
     ]
     if _env_enabled("TOMMY_SKILL_FORGE_ENABLED"):

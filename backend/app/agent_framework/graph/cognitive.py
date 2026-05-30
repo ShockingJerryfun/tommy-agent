@@ -216,6 +216,19 @@ def create_critic_node() -> Callable[[AgentState], dict[str, Any]]:
 
         directives: list[dict[str, Any]] = []
         now = _utc_now()
+        if budget.exhausted:
+            directives.append(
+                {
+                    "kind": "budget",
+                    "message": (
+                        "工具/轮次预算已耗尽。不要再调用工具；请基于目前已经获得的"
+                        "信息直接给出最终答复。如果信息不足，明确说明哪些结论是受限的。"
+                    ),
+                    "metadata": budget.as_dict(),
+                    "node": "critic",
+                    "created_at": now,
+                }
+            )
         if loop_signal.detected:
             directives.append(
                 {

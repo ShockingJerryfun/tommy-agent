@@ -26,6 +26,7 @@ from app.agent_framework.graph import (
     route_after_agent,
     route_after_critic,
 )
+from app.agent_framework.graph.nodes import agent_response_update
 from app.agent_framework.state import initial_state
 
 # ----------------------------------------------------------------- Budget
@@ -267,6 +268,33 @@ def test_critic_marks_budget_exhaustion() -> None:
     assert update["budget"]["exhausted"] is True
 
 
+def test_agent_response_suppresses_tool_calls_after_budget_exhaustion() -> None:
+    state = initial_state(session_id="sess-1")
+    state["messages"] = [
+        HumanMessage(content="inspect files"),
+        _ai_with_tool_call("read_local_file", {"path": "a.py"}, idx=1),
+        ToolMessage(
+            content="file content from a.py",
+            name="read_local_file",
+            tool_call_id="call-read_local_file-1",
+        ),
+    ]
+    state["budget"] = {"exhausted": True, "exhausted_reason": "tool_call_cap:24"}
+
+    update = agent_response_update(
+        state,
+        _ai_with_tool_call("run_shell_command", {"command": "git diff"}, idx=2),
+    )
+
+    response = update["messages"][0]
+    assert isinstance(response, AIMessage)
+    assert response.tool_calls == []
+    assert "运行预算已耗尽" in response.content
+    assert "run_shell_command" in response.content
+    assert "read_local_file" in response.content
+    assert update["intermediate_steps"][0]["tool_calls_suppressed"] is True
+
+
 def test_reflector_summarises_terminal_state() -> None:
     state = initial_state(session_id="sess-1")
     state["messages"] = [
@@ -303,11 +331,45 @@ def test_route_after_critic_terminates_on_budget_exhaustion() -> None:
     assert route_after_critic(state) == "reflector"
 
 
+def test_route_after_critic_returns_to_agent_after_tool_budget_exhaustion() -> None:
+    state = initial_state(session_id="sess-1")
+    state["messages"] = [
+        HumanMessage(content="inspect files"),
+        _ai_with_tool_call("read_local_file", {"path": "a.py"}, idx=1),
+        ToolMessage(
+            content="file content",
+            name="read_local_file",
+            tool_call_id="call-read_local_file-1",
+        ),
+    ]
+    state["budget"] = {"exhausted": True, "exhausted_reason": "tool_call_cap:24"}
+
+    assert route_after_critic(state) == "agent"
+
+
 def test_route_after_critic_terminates_on_loop_signal() -> None:
     state = initial_state(session_id="sess-1")
     state["messages"] = [AIMessage(content="hi")]
     state["loop_signals"] = {"detected": True}
     assert route_after_critic(state) == "reflector"
+
+
+def test_route_after_critic_returns_to_agent_after_tool_drift() -> None:
+    state = initial_state(session_id="sess-1")
+    state["messages"] = [
+        HumanMessage(content="inspect files"),
+        _ai_with_tool_call("read_local_file", {"path": "/tmp/nope"}, idx=1),
+        ToolMessage(
+            content="PermissionError",
+            name="read_local_file",
+            tool_call_id="call-read_local_file-1",
+        ),
+    ]
+    state["budget"] = {"exhausted": False}
+    state["loop_signals"] = {"detected": False}
+    state["drift_signals"] = {"detected": True}
+
+    assert route_after_critic(state) == "agent"
 
 
 def test_route_after_critic_continues_after_action() -> None:

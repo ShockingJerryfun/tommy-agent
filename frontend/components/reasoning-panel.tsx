@@ -257,6 +257,146 @@ function latestContextSummary(steps: RunStep[]) {
   };
 }
 
+type MultiAgentRunSummary = {
+  id: string;
+  kind: "team" | "workflow";
+  status: RunStep["status"];
+  title: string;
+  runningCount: number;
+  doneCount: number;
+  errorCount: number;
+  childSessions: string[];
+  details: string[];
+};
+
+function latestMultiAgentSummary(steps: RunStep[]): MultiAgentRunSummary[] {
+  const teams = new Map<string, MultiAgentRunSummary & { childSessionSet: Set<string> }>();
+  const workflows = new Map<string, MultiAgentRunSummary & { childSessionSet: Set<string> }>();
+  const latestSteps = new Map<string, RunStep>();
+
+  for (const step of steps) {
+    if (step.type !== "subagent" || !step.payload) continue;
+    latestSteps.set(multiAgentEntityKey(step), step);
+  }
+
+  for (const step of latestSteps.values()) {
+    if (!step.payload) continue;
+    const payload = step.payload;
+    const eventType = String(payload.event_type ?? "");
+    const childSessionId = String(payload.child_session_id ?? "");
+    const teamRunId = String(payload.team_run_id ?? "");
+    const workflowRunId = String(payload.workflow_run_id ?? "");
+    if (teamRunId) {
+      const summary = ensureMultiAgentSummary(teams, teamRunId, "team");
+      applyMultiAgentStep(summary, step, eventType, childSessionId);
+      const taskId = String(payload.team_task_id ?? "");
+      if (taskId && eventType.includes("team_task")) {
+        summary.details = upsertDetail(
+          summary.details,
+          taskId,
+          `${shortId(taskId)} · ${statusLabel(step.status)}`,
+        );
+      }
+    }
+    if (workflowRunId) {
+      const summary = ensureMultiAgentSummary(workflows, workflowRunId, "workflow");
+      applyMultiAgentStep(summary, step, eventType, childSessionId);
+      const phaseId = String(payload.workflow_phase_id ?? payload.phase_run_id ?? "");
+      if (phaseId && eventType.includes("workflow_phase")) {
+        summary.details = upsertDetail(
+          summary.details,
+          phaseId,
+          `${phaseId} · ${statusLabel(step.status)}`,
+        );
+      }
+    }
+  }
+
+  return [...teams.values(), ...workflows.values()].map(({ childSessionSet, ...summary }) => ({
+    ...summary,
+    childSessions: Array.from(childSessionSet).slice(0, 3),
+    details: summary.details.slice(0, 4),
+  }));
+}
+
+function multiAgentEntityKey(step: RunStep) {
+  const payload = step.payload ?? {};
+  const eventType = String(payload.event_type ?? "");
+  const teamTaskId = String(payload.team_task_id ?? "");
+  const workflowPhaseId = String(payload.workflow_phase_id ?? "");
+  const workerRunId = String(payload.worker_run_id ?? "");
+  const teamRunId = String(payload.team_run_id ?? "");
+  const workflowRunId = String(payload.workflow_run_id ?? "");
+  if (teamTaskId) return `team-task-${teamTaskId}`;
+  if (workflowPhaseId) return `workflow-phase-${workflowPhaseId}`;
+  if (workerRunId) return `worker-${workerRunId}`;
+  if (teamRunId && eventType.includes("synthesis")) return `team-synthesis-${teamRunId}`;
+  if (teamRunId) return `team-run-${teamRunId}`;
+  if (workflowRunId) return `workflow-run-${workflowRunId}`;
+  return `event-${eventType}-${step.id}`;
+}
+
+function ensureMultiAgentSummary(
+  map: Map<string, MultiAgentRunSummary & { childSessionSet: Set<string> }>,
+  id: string,
+  kind: "team" | "workflow",
+) {
+  const existing = map.get(id);
+  if (existing) return existing;
+  const summary = {
+    id,
+    kind,
+    status: "running" as const,
+    title: `${kind === "team" ? "Team" : "Workflow"} ${shortId(id)}`,
+    runningCount: 0,
+    doneCount: 0,
+    errorCount: 0,
+    childSessions: [],
+    childSessionSet: new Set<string>(),
+    details: [],
+  };
+  map.set(id, summary);
+  return summary;
+}
+
+function applyMultiAgentStep(
+  summary: MultiAgentRunSummary & { childSessionSet: Set<string> },
+  step: RunStep,
+  eventType: string,
+  childSessionId: string,
+) {
+  if (eventType.endsWith("_started")) summary.runningCount += 1;
+  if (
+    eventType.endsWith("_completed") ||
+    eventType.endsWith("_skipped") ||
+    step.status === "done"
+  ) {
+    summary.doneCount += 1;
+  }
+  if (eventType.endsWith("_failed") || step.status === "error") summary.errorCount += 1;
+  if (eventType.endsWith("_completed") || eventType.endsWith("_failed")) {
+    summary.status = step.status;
+  }
+  if (childSessionId) summary.childSessionSet.add(childSessionId);
+}
+
+function upsertDetail(details: string[], key: string, value: string) {
+  const prefix = `${shortId(key)} ·`;
+  const next = details.filter((detail) => !detail.startsWith(prefix));
+  return [...next, value];
+}
+
+function shortId(value: string) {
+  const parts = value.split("-");
+  return parts[parts.length - 1]?.slice(0, 8) ?? value.slice(0, 8);
+}
+
+function statusLabel(status: RunStep["status"]) {
+  if (status === "running") return "running";
+  if (status === "error") return "error";
+  return "done";
+}
+
 /* ── Coalesce (for step detail list) ───────────────────── */
 
 function coalesceRunSteps(steps: RunStep[]) {
@@ -427,6 +567,7 @@ export function ReasoningPanel({ steps, showGraph = true }: ReasoningPanelProps)
   const visibleSteps = useMemo(() => coalesceRunSteps(steps), [steps]);
   const pipelineNodes = useMemo(() => buildPipelineState(steps), [steps]);
   const contextSummary = useMemo(() => latestContextSummary(visibleSteps), [visibleSteps]);
+  const multiAgentRuns = useMemo(() => latestMultiAgentSummary(steps), [steps]);
   const [detailOpen, setDetailOpen] = useState(false);
 
   return (
@@ -466,6 +607,71 @@ export function ReasoningPanel({ steps, showGraph = true }: ReasoningPanelProps)
             </div>
             <div className="mt-2 text-[11px] text-slate-400 dark:text-slate-500">
               injected memories: {contextSummary.memoryCount}
+            </div>
+          </div>
+        )}
+
+        {multiAgentRuns.length > 0 && (
+          <div className="admin-card rounded-2xl p-3 text-[12px] text-slate-600 dark:text-slate-400">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <span className="font-medium text-slate-700 dark:text-slate-200">
+                Multi-agent
+              </span>
+              <span className="text-[11px] text-slate-400 dark:text-slate-500">
+                {multiAgentRuns.length} run
+              </span>
+            </div>
+            <div className="space-y-2">
+              {multiAgentRuns.map((run) => (
+                <div
+                  key={`${run.kind}-${run.id}`}
+                  className="rounded-xl border border-white/35 bg-white/25 px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)] dark:border-white/[0.08] dark:bg-white/[0.04]"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate font-medium text-slate-700 dark:text-slate-200">
+                      {run.title}
+                    </span>
+                    <span className={stepStatusClassName(run.status)}>
+                      {statusLabel(run.status)}
+                    </span>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    <span className="admin-badge admin-badge-neutral text-[10px]">
+                      running {run.runningCount}
+                    </span>
+                    <span className="admin-badge admin-badge-neutral text-[10px]">
+                      done {run.doneCount}
+                    </span>
+                    {run.errorCount > 0 && (
+                      <span className="admin-badge admin-badge-warning text-[10px]">
+                        error {run.errorCount}
+                      </span>
+                    )}
+                  </div>
+                  {run.details.length > 0 && (
+                    <div className="mt-2 space-y-1 text-[11px] text-slate-500 dark:text-slate-500">
+                      {run.details.map((detail) => (
+                        <div key={detail} className="truncate">
+                          {detail}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {run.childSessions.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {run.childSessions.map((sessionId) => (
+                        <span
+                          key={sessionId}
+                          className="admin-badge admin-badge-neutral max-w-full truncate text-[10px]"
+                          title={sessionId}
+                        >
+                          child {shortId(sessionId)}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         )}

@@ -152,7 +152,12 @@ class BackgroundRunQueue:
                 {"error_type": type(exc).__name__, "error_message": str(exc)},
             )
             raise
-        self._set_status(run_id, kind, "completed", metadata)
+        final_status = "completed"
+        if isinstance(result, dict):
+            result_status = str(result.get("status") or "")
+            if result_status in {"completed", "failed", "stopped", "cancelled", "interrupted"}:
+                final_status = result_status
+        self._set_status(run_id, kind, final_status, metadata)
         return result
 
     def _set_status(

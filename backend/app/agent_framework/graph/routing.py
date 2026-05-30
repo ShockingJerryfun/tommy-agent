@@ -64,7 +64,8 @@ def route_after_critic(state: AgentState) -> CriticRoute:
 
     - User stop requested.
     - Budget exhausted.
-    - Loop or drift detected.
+    - Loop or drift detected after the model has had a chance to see the
+      tool failures and produce a fallback answer.
 
     Otherwise:
 
@@ -81,19 +82,19 @@ def route_after_critic(state: AgentState) -> CriticRoute:
         return "reflector"
     if approval_is_pending(state):
         return "reflector"
-    budget = state.get("budget") or {}
-    if budget.get("exhausted"):
-        return "reflector"
-    if (state.get("loop_signals") or {}).get("detected"):
-        return "reflector"
-    if (state.get("drift_signals") or {}).get("detected"):
-        return "reflector"
-
     messages = state.get("messages", []) or []
     if not messages:
         return "reflector"
     last = messages[-1]
-    if isinstance(last, ToolMessage) or getattr(last, "type", "") == "tool":
+    last_is_tool = isinstance(last, ToolMessage) or getattr(last, "type", "") == "tool"
+    budget = state.get("budget") or {}
+    if budget.get("exhausted"):
+        return "agent" if last_is_tool else "reflector"
+    if (state.get("loop_signals") or {}).get("detected"):
+        return "agent" if last_is_tool else "reflector"
+    if (state.get("drift_signals") or {}).get("detected"):
+        return "agent" if last_is_tool else "reflector"
+    if last_is_tool:
         return "agent"
     if tool_calls(last):
         return "agent"
@@ -118,7 +119,10 @@ def run_stop_requested(state: AgentState) -> bool:
 
     parent_session_id = str(metadata.get("parent_session_id") or "")
     parent_run_id = str(metadata.get("parent_run_id") or "")
-    return store.run_stop_requested(session_id=parent_session_id, run_id=parent_run_id)
+    return store.explicit_stop_requested(
+        session_id=parent_session_id,
+        run_id=parent_run_id,
+    )
 
 
 def raise_if_stopped(state: AgentState) -> None:

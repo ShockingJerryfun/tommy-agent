@@ -36,7 +36,7 @@ def load_llm_settings() -> LLMSettings:
             or os.getenv("OPENAI_BASE_URL")
         ),
         temperature=float(os.getenv("AGENT_TEMPERATURE", "0.2")),
-        timeout=float(os.getenv("AGENT_TIMEOUT_SECONDS", "60")),
+        timeout=float(os.getenv("AGENT_TIMEOUT_SECONDS", "120")),
         max_retries=int(os.getenv("AGENT_MAX_RETRIES", "2")),
     )
 
@@ -94,6 +94,7 @@ def create_llm(settings: LLMSettings | None = None) -> BaseChatModel:
             model=resolved.model,
             api_key=deepseek_key,
             temperature=resolved.temperature,
+            timeout=resolved.timeout,
             max_retries=resolved.max_retries,
             streaming=True,
         )

@@ -269,6 +269,46 @@ def test_skill_forge_maintenance_can_be_enabled(monkeypatch) -> None:
     assert "skills.forge_nightly" in {job.name for job in jobs}
 
 
+def test_multi_agent_retention_job_truncates_outputs_and_deletes_orphans(monkeypatch) -> None:
+    store = _store()
+    session_id = _new_session(store)
+    run_id = "run-retention"
+    store.create_run(
+        session_id=session_id,
+        agent_id="default",
+        input="retention",
+        run_id=run_id,
+        status="running",
+    )
+    store.create_session(session_id="child-retention", agent_id="default", title="child")
+    subagent = store.subagent_runs.create(
+        parent_session_id=session_id,
+        parent_run_id=run_id,
+        child_session_id="child-retention",
+        role="reviewer",
+        task="large",
+    )
+    store.subagent_runs.update(
+        subagent["id"],
+        status="completed",
+        final_response="x" * 80,
+        finished=True,
+    )
+    store.artifacts.create(
+        owner_run_id=run_id,
+        owner_type="subagent",
+        subagent_run_id="missing-subagent",
+        kind="blob",
+    )
+    monkeypatch.setenv("TOMMY_CHILD_OUTPUT_MAX_CHARS", "24")
+    scheduler = MaintenanceScheduler(jobs=default_maintenance_jobs(store))
+
+    asyncio.run(scheduler.run_once("multi_agent.retention"))
+
+    assert len(store.subagent_runs.get(subagent["id"])["final_response"]) <= 24
+    assert store.artifacts.list_orphan_artifacts(limit=10) == []
+
+
 # Skip flaky time-sensitive timing checks under heavy CI load.
 @pytest.mark.parametrize("_iter", range(1))
 def test_run_metrics_records_positive_duration(_iter: int) -> None:

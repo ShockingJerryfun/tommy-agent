@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import shutil
@@ -39,6 +40,18 @@ CODING_KEYWORDS = (
     "构建",
     "修复",
     "实现",
+)
+
+READ_ONLY_MARKERS = (
+    "只读",
+    "不要修改",
+    "不修改",
+    "不要写入",
+    "do not modify",
+    "don't modify",
+    "without modifying",
+    "read-only",
+    "readonly",
 )
 
 
@@ -118,6 +131,8 @@ class TaskVerifier:
                 json.dumps(payload.metadata, ensure_ascii=False, default=str),
             ]
         ).casefold()
+        if any(marker in text for marker in READ_ONLY_MARKERS):
+            return False
         return any(keyword in text for keyword in CODING_KEYWORDS)
 
     async def verify(
@@ -140,10 +155,14 @@ class TaskVerifier:
         attempts: list[VerificationAttempt] = []
         final_status = "skipped"
         for attempt_index in range(1, attempts_limit + 1):
-            current = [
-                self._command_runner(command, attempt_index)
-                for command in commands
-            ]
+            current = list(
+                await asyncio.gather(
+                    *(
+                        asyncio.to_thread(self._command_runner, command, attempt_index)
+                        for command in commands
+                    )
+                )
+            )
             attempts.extend(current)
             if any(item.status == "failed" for item in current):
                 final_status = "failed"

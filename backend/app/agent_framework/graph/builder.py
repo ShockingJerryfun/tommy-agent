@@ -15,7 +15,12 @@ from .cognitive import (
     create_pre_run_node,
     create_reflector_node,
 )
-from .nodes import create_action_node, create_agent_node, create_agent_node_async
+from .nodes import (
+    create_action_node,
+    create_action_node_async,
+    create_agent_node,
+    create_agent_node_async,
+)
 from .routing import route_after_agent, route_after_critic
 
 
@@ -67,7 +72,12 @@ def build_agent_graph(
         if async_model
         else create_agent_node(model, tool_registry),
     )
-    graph.add_node("action", create_action_node(tool_registry))
+    graph.add_node(
+        "action",
+        create_action_node_async(tool_registry)
+        if async_model
+        else create_action_node(tool_registry),
+    )
     graph.add_node("critic", create_critic_node())
     graph.add_node("reflector", create_reflector_node())
 

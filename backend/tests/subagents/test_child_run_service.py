@@ -43,6 +43,7 @@ def test_child_run_service_creates_child_result_with_fake_runner() -> None:
     ) -> dict[str, Any]:
         assert role.id == "researcher"
         assert thread_config["configurable"]["thread_id"]
+        assert thread_config["recursion_limit"] >= role.max_turns * 5
         assert "Task:\nresearch x" in prompt
         return {"final_response": "Found https://example.com", "status": "completed"}
 

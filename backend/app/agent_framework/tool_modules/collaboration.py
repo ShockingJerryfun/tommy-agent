@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Literal
+from typing import Any, Literal
 
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
@@ -378,7 +378,7 @@ def cancel_agent_team_run(team_run_id: str, reason: str = "") -> str:
             default=str,
         )
     store = get_agent_store()
-    cancelled = _background_queue().cancel(team_run_id, reason=reason)
+    cancelled = _background_queue(store).cancel(team_run_id, reason=reason)
     store.agent_team_runs.update(
         team_run_id,
         status="cancelled",
@@ -507,7 +507,7 @@ def cancel_agent_workflow_run(workflow_run_id: str, reason: str = "") -> str:
             default=str,
         )
     store = get_agent_store()
-    cancelled = _background_queue().cancel(workflow_run_id, reason=reason)
+    cancelled = _background_queue(store).cancel(workflow_run_id, reason=reason)
     store.workflow_runs.update(
         workflow_run_id,
         status="stopped",
@@ -541,7 +541,26 @@ def rerun_failed_workflow_phase(workflow_run_id: str, phase_run_id: str) -> str:
     phase = store.workflow_phase_runs.get(phase_run_id)
     if phase is None or phase["workflow_run_id"] != workflow_run_id:
         raise ValueError(f"unknown phase run: {phase_run_id}")
+    run = store.workflow_runs.get(workflow_run_id)
+    if run is None:
+        raise ValueError(f"unknown workflow run: {workflow_run_id}")
+    workflow_yaml = str((run.get("metadata") or {}).get("workflow_yaml") or "")
+    if not workflow_yaml:
+        raise ValueError("workflow run does not contain workflow_yaml metadata")
     store.workflow_phase_runs.update(phase_run_id, status="queued", outputs=[])
+    store.workflow_runs.update(
+        workflow_run_id,
+        status="queued",
+        summary="Workflow phase rerun queued.",
+        metadata_patch={"rerun_phase_run_id": phase_run_id},
+    )
+    _enqueue_workflow_run(
+        store,
+        workflow_run_id,
+        workflow_yaml=workflow_yaml,
+        inputs=dict(run.get("inputs") or {}),
+        parent_metadata=dict(run.get("metadata") or {}),
+    )
     return json.dumps(
         {
             "status": "queued",
@@ -558,15 +577,51 @@ def _context_run_id(context: dict[str, object]) -> str:
     return str(context.get("run_id") or metadata.get("run_id") or "")
 
 
-def _background_queue():
+def _background_queue(store=None):
     from ..runtime.background_tasks import BackgroundRunQueue
 
     global _BACKGROUND_QUEUE
     try:
         return _BACKGROUND_QUEUE
     except NameError:
-        _BACKGROUND_QUEUE = BackgroundRunQueue()
+        active_store = store or get_agent_store()
+        _BACKGROUND_QUEUE = BackgroundRunQueue(
+            status_writer=lambda run_id, status, metadata: _write_background_status(
+                active_store,
+                run_id,
+                status,
+                metadata,
+            ),
+            orphan_provider=lambda: _running_background_rows(active_store),
+        )
+        _BACKGROUND_QUEUE.mark_orphans_interrupted()
         return _BACKGROUND_QUEUE
+
+
+def _write_background_status(
+    store,
+    run_id: str,
+    status: str,
+    metadata: dict[str, Any],
+) -> None:
+    metadata_patch = {
+        key: value
+        for key, value in metadata.items()
+        if key not in {"run_id", "kind", "status"}
+    }
+    if run_id.startswith("team-run-"):
+        store.agent_team_runs.update(run_id, status=status, metadata_patch=metadata_patch)
+        return
+    if run_id.startswith("workflow-"):
+        workflow_status = "stopped" if status in {"cancelled", "interrupted"} else status
+        store.workflow_runs.update(run_id, status=workflow_status, metadata_patch=metadata_patch)
+
+
+def _running_background_rows(store) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    rows.extend({**row, "kind": "team"} for row in store.agent_team_runs.list_running())
+    rows.extend({**row, "kind": "workflow"} for row in store.workflow_runs.list_running())
+    return rows
 
 
 def _enqueue_team_run(store, team_run_id: str, *, max_concurrency: int) -> None:
@@ -578,7 +633,7 @@ def _enqueue_team_run(store, team_run_id: str, *, max_concurrency: int) -> None:
             cancellation_token=token,
         )
 
-    _background_queue().enqueue(team_run_id, "team", run)
+    _background_queue(store).enqueue(team_run_id, "team", run)
 
 
 def _enqueue_workflow_run(
@@ -607,4 +662,4 @@ def _enqueue_workflow_run(
             cancellation_token=token,
         )
 
-    _background_queue().enqueue(workflow_run_id, "workflow", execute)
+    _background_queue(store).enqueue(workflow_run_id, "workflow", execute)

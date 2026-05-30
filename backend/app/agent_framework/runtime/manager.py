@@ -39,6 +39,23 @@ def _optional_int(value: Any) -> int | None:
         return None
 
 
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+
+
+def _graph_stream_timeout_seconds() -> float:
+    model_timeout = _env_float("AGENT_TIMEOUT_SECONDS", 120.0)
+    grace_seconds = max(0.0, _env_float("AGENT_RUN_TIMEOUT_GRACE_SECONDS", 30.0))
+    return max(1.0, model_timeout + grace_seconds)
+
+
+def _stream_client_control_grace_seconds() -> float:
+    return max(0.0, _env_float("AGENT_STREAM_CLIENT_CONTROL_GRACE_SECONDS", 0.001))
+
+
 def _snapshot_skill_activation(snapshot: dict[str, Any]) -> dict[str, Any]:
     metadata = snapshot.get("metadata")
     if not isinstance(metadata, dict):
@@ -202,6 +219,12 @@ class RunManager:
             await finish_cancelled()
             return True
 
+        async def yield_for_client_control() -> None:
+            await asyncio.sleep(0)
+            grace_seconds = _stream_client_control_grace_seconds()
+            if grace_seconds > 0:
+                await asyncio.sleep(grace_seconds)
+
         try:
             if await cancel_if_requested():
                 return
@@ -241,98 +264,107 @@ class RunManager:
                 run_id,
                 AgentEvent(type="model_start", data={"agent_id": payload.agent_id}),
             )
-            async for part in self._graph_runtime.stream(payload.session_id, inputs):
-                self._record_model_usage(metrics, part)
-                event = map_stream_part(part)
-                if event is None:
-                    continue
-                published = False
-                if event.type == "token":
-                    token = str(event.data.get("content", ""))
-                    assistant_writer.append_text(token)
-                    await self.append_and_publish_event(payload.session_id, run_id, event)
-                    published = True
-                    await asyncio.sleep(0)
-                    assistant_writer.flush()
-                elif event.type == "reasoning":
-                    reasoning_content = str(event.data.get("content", ""))
-                    if reasoning_content:
-                        assistant_writer.append_reasoning(reasoning_content)
-                    await self.append_and_publish_event(payload.session_id, run_id, event)
-                    published = True
-                    await asyncio.sleep(0)
-                    assistant_writer.flush()
-                elif event.type == "tool_start":
-                    tool_call_id = str(
-                        event.data.get("tool_call_id") or event.data.get("run_id") or "tool"
-                    )
-                    tool_name = str(event.data.get("tool", "tool"))
-                    if tool_name in {"write_local_file", "run_shell_command"}:
-                        changed_files_seen = True
-                    args = (
-                        event.data.get("args") if isinstance(event.data.get("args"), dict) else {}
-                    )
-                    summary = json.dumps(args, ensure_ascii=False) if args else "正在运行…"
-                    assistant_writer.upsert_tool(
-                        {
-                            "id": tool_call_id,
-                            "tool": event.data.get("tool", "tool"),
-                            "status": "running",
-                            "summary": summary,
-                        }
-                    )
-                    await self.append_and_publish_event(payload.session_id, run_id, event)
-                    published = True
-                    await asyncio.sleep(0)
-                    assistant_writer.flush(force=True)
-                    self.store.upsert_tool_call(
-                        payload.session_id,
-                        run_id=run_id,
-                        tool_call_id=tool_call_id,
-                        name=str(event.data.get("tool", "tool")),
-                        status="running",
-                        args=args,
-                    )
-                elif event.type == "tool_end":
-                    tool_call_id = str(
-                        event.data.get("tool_call_id") or event.data.get("run_id") or "tool"
-                    )
-                    raw_status = str(event.data.get("status", "ok"))
-                    if raw_status == "pending_approval":
-                        pending_approval_seen = True
-                    metrics.record_tool(error=raw_status == "error")
-                    status = (
-                        "running"
-                        if raw_status == "pending_approval"
-                        else "error"
-                        if raw_status == "error"
-                        else "done"
-                    )
-                    result = str(event.data.get("content") or event.data.get("output") or "")
-                    assistant_writer.upsert_tool(
-                        {
-                            "id": tool_call_id,
-                            "tool": event.data.get("tool", "tool"),
-                            "status": raw_status if raw_status == "pending_approval" else status,
-                            "summary": result,
-                        }
-                    )
-                    await self.append_and_publish_event(payload.session_id, run_id, event)
-                    published = True
-                    await asyncio.sleep(0)
-                    assistant_writer.flush(force=True)
-                    self.store.upsert_tool_call(
-                        payload.session_id,
-                        run_id=run_id,
-                        tool_call_id=tool_call_id,
-                        name=str(event.data.get("tool", "tool")),
-                        status=status,
-                        result=result,
-                    )
-                if not published:
-                    await self.append_and_publish_event(payload.session_id, run_id, event)
-                if await cancel_if_requested():
-                    return
+            async with asyncio.timeout(_graph_stream_timeout_seconds()):
+                async for part in self._graph_runtime.stream(payload.session_id, inputs):
+                    self._record_model_usage(metrics, part)
+                    event = map_stream_part(part)
+                    if event is None:
+                        continue
+                    published = False
+                    if event.type == "token":
+                        token = str(event.data.get("content", ""))
+                        assistant_writer.append_text(token)
+                        await self.append_and_publish_event(payload.session_id, run_id, event)
+                        published = True
+                        await yield_for_client_control()
+                        assistant_writer.flush()
+                    elif event.type == "reasoning":
+                        reasoning_content = str(event.data.get("content", ""))
+                        if reasoning_content:
+                            assistant_writer.append_reasoning(reasoning_content)
+                        await self.append_and_publish_event(payload.session_id, run_id, event)
+                        published = True
+                        await yield_for_client_control()
+                        assistant_writer.flush()
+                    elif event.type == "tool_start":
+                        tool_call_id = str(
+                            event.data.get("tool_call_id")
+                            or event.data.get("run_id")
+                            or "tool"
+                        )
+                        tool_name = str(event.data.get("tool", "tool"))
+                        if tool_name == "write_local_file":
+                            changed_files_seen = True
+                        args = (
+                            event.data.get("args")
+                            if isinstance(event.data.get("args"), dict)
+                            else {}
+                        )
+                        summary = json.dumps(args, ensure_ascii=False) if args else "正在运行…"
+                        assistant_writer.upsert_tool(
+                            {
+                                "id": tool_call_id,
+                                "tool": event.data.get("tool", "tool"),
+                                "status": "running",
+                                "summary": summary,
+                            }
+                        )
+                        await self.append_and_publish_event(payload.session_id, run_id, event)
+                        published = True
+                        await yield_for_client_control()
+                        assistant_writer.flush(force=True)
+                        self.store.upsert_tool_call(
+                            payload.session_id,
+                            run_id=run_id,
+                            tool_call_id=tool_call_id,
+                            name=str(event.data.get("tool", "tool")),
+                            status="running",
+                            args=args,
+                        )
+                    elif event.type == "tool_end":
+                        tool_call_id = str(
+                            event.data.get("tool_call_id")
+                            or event.data.get("run_id")
+                            or "tool"
+                        )
+                        raw_status = str(event.data.get("status", "ok"))
+                        if raw_status == "pending_approval":
+                            pending_approval_seen = True
+                        metrics.record_tool(error=raw_status == "error")
+                        status = (
+                            "running"
+                            if raw_status == "pending_approval"
+                            else "error"
+                            if raw_status == "error"
+                            else "done"
+                        )
+                        result = str(event.data.get("content") or event.data.get("output") or "")
+                        assistant_writer.upsert_tool(
+                            {
+                                "id": tool_call_id,
+                                "tool": event.data.get("tool", "tool"),
+                                "status": raw_status
+                                if raw_status == "pending_approval"
+                                else status,
+                                "summary": result,
+                            }
+                        )
+                        await self.append_and_publish_event(payload.session_id, run_id, event)
+                        published = True
+                        await yield_for_client_control()
+                        assistant_writer.flush(force=True)
+                        self.store.upsert_tool_call(
+                            payload.session_id,
+                            run_id=run_id,
+                            tool_call_id=tool_call_id,
+                            name=str(event.data.get("tool", "tool")),
+                            status=status,
+                            result=result,
+                        )
+                    if not published:
+                        await self.append_and_publish_event(payload.session_id, run_id, event)
+                    if await cancel_if_requested():
+                        return
 
             if await cancel_if_requested():
                 return
@@ -383,6 +415,8 @@ class RunManager:
                     "\n\n验证摘要："
                     f"{verification_summary.summary}"
                 )
+            if await cancel_if_requested():
+                return
             assistant_writer.flush(status="completed", force=True)
             self.store.update_run_status(run_id, status="completed", finished_at=utc_now())
             self.store.finish_run(payload.session_id, run_id=run_id, status="completed")
@@ -417,6 +451,37 @@ class RunManager:
             )
             if status == "interrupted":
                 raise
+        except TimeoutError:
+            timeout_seconds = _graph_stream_timeout_seconds()
+            message = f"运行超过 {timeout_seconds:.0f} 秒未完成，已自动停止。"
+            event = error_event(RuntimeError(message))
+            metrics.record_error()
+            await self.append_and_publish_event(
+                payload.session_id,
+                run_id,
+                AgentEvent(type="model_error", data={"message": message}),
+            )
+            assistant_writer.flush(status="error", force=True)
+            self.store.update_run_status(
+                run_id,
+                status="error",
+                finished_at=utc_now(),
+                error=message,
+            )
+            self.store.finish_run(
+                payload.session_id,
+                run_id=run_id,
+                status="error",
+                reason=message,
+            )
+            await self.append_and_publish_event(payload.session_id, run_id, event)
+            await self.append_and_publish_event(payload.session_id, run_id, done_event())
+            self._finalize_run_metrics(
+                metrics,
+                status="error",
+                terminal_reason="timeout",
+                assistant_writer=assistant_writer,
+            )
         except Exception as exc:  # noqa: BLE001 - run errors are persisted and streamed.
             event = error_event(exc)
             metrics.record_error()
@@ -471,6 +536,9 @@ class RunManager:
         run = self.store.request_run_cancel(run_id)
         if run is None:
             return None
+        task = self._tasks.get(run_id)
+        if task is not None and not task.done():
+            task.cancel("user requested stop")
         if run["status"] == "queued" and run_id not in self._tasks:
             run = self.store.update_run_status(run_id, status="cancelled", finished_at=utc_now())
             await self.append_and_publish_event(
@@ -737,25 +805,26 @@ class RunManager:
                 ),
             ],
         }
-        async for part in self._graph_runtime.stream(payload.session_id, fix_inputs):
-            event = map_stream_part(part)
-            if event is None:
-                continue
-            if event.type == "token":
-                assistant_writer.append_text(str(event.data.get("content", "")))
+        async with asyncio.timeout(_graph_stream_timeout_seconds()):
+            async for part in self._graph_runtime.stream(payload.session_id, fix_inputs):
+                event = map_stream_part(part)
+                if event is None:
+                    continue
+                if event.type == "token":
+                    assistant_writer.append_text(str(event.data.get("content", "")))
+                    await self.append_and_publish_event(payload.session_id, run_id, event)
+                    await asyncio.sleep(0)
+                    assistant_writer.flush()
+                    continue
+                if event.type == "reasoning":
+                    reasoning_content = str(event.data.get("content", ""))
+                    if reasoning_content:
+                        assistant_writer.append_reasoning(reasoning_content)
+                    await self.append_and_publish_event(payload.session_id, run_id, event)
+                    await asyncio.sleep(0)
+                    assistant_writer.flush()
+                    continue
                 await self.append_and_publish_event(payload.session_id, run_id, event)
-                await asyncio.sleep(0)
-                assistant_writer.flush()
-                continue
-            if event.type == "reasoning":
-                reasoning_content = str(event.data.get("content", ""))
-                if reasoning_content:
-                    assistant_writer.append_reasoning(reasoning_content)
-                await self.append_and_publish_event(payload.session_id, run_id, event)
-                await asyncio.sleep(0)
-                assistant_writer.flush()
-                continue
-            await self.append_and_publish_event(payload.session_id, run_id, event)
 
     def _default_max_verification_attempts(self) -> int:
         raw = os.getenv("TOMMY_MAX_VERIFICATION_ATTEMPTS", "2")

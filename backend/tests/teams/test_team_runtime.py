@@ -54,10 +54,12 @@ async def test_team_runtime_plans_when_no_tasks_and_synthesizes_summary() -> Non
         approval_id="approval-1",
         goal="Ship runtime",
     )
+    calls: list[str] = []
 
     async def runner(task: WorkerTask) -> WorkerResult:
         assert "Task Board" in task.task
         assert "Mailbox" in task.task
+        calls.append(task.id)
         return WorkerResult(
             task_id=task.id,
             subagent_id=f"sub-{task.id}",
@@ -85,6 +87,7 @@ async def test_team_runtime_plans_when_no_tasks_and_synthesizes_summary() -> Non
     assert result["summary"]
     assert store.agent_team_runs.get(team_run["id"])["summary"] == result["summary"]
     assert store.agent_team_tasks.list_for_team(team["id"])[0]["status"] == "completed"
+    assert calls[-1] == f"{team_run['id']}:synthesis"
 
 
 @pytest.mark.asyncio

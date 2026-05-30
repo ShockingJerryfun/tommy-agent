@@ -164,6 +164,7 @@ class ChildRunService:
         thread_config = {
             "configurable": {"thread_id": child_session_id},
             "metadata": metadata,
+            "recursion_limit": max(32, int(role.max_turns) * 5),
         }
         try:
             result = self._runner(prompt, registry, role, thread_config)

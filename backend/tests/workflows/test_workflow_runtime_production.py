@@ -135,3 +135,122 @@ def test_workflow_runtime_module_does_not_expose_sync_thread_bridge() -> None:
     import app.agent_framework.tool_modules.collaboration as collaboration
 
     assert not hasattr(collaboration, "_run_coro_sync")
+
+
+@pytest.mark.asyncio
+async def test_workflow_runtime_resumes_from_failed_phase(tmp_path: Path) -> None:
+    store = _store()
+    parent_session_id, parent_run_id = _new_session(store)
+    calls: list[str] = []
+
+    async def first_runner(task: WorkerTask) -> WorkerResult:
+        calls.append(task.task)
+        status = "failed" if "Second" in task.task else "completed"
+        return WorkerResult(
+            task_id=task.id,
+            subagent_id=f"sub-{task.id}",
+            child_session_id=f"child-{task.id}",
+            role_id=task.role_id,
+            status=status,
+            final_response=f"{status} {task.task}",
+        )
+
+    spec = load_workflow_spec(
+        _write_spec(
+            tmp_path / "resume.yaml",
+            """
+id: resume
+name: Resume
+phases:
+  - id: first
+    kind: single
+    agent: explorer
+    prompt: First
+  - id: second
+    kind: single
+    agent: explorer
+    prompt: Second
+""",
+        )
+    )
+
+    result = await WorkflowRuntime(store, worker_runner=first_runner).run(
+        spec,
+        parent_session_id=parent_session_id,
+        parent_run_id=parent_run_id,
+    )
+    assert result.status == "failed"
+    assert calls == ["First", "Second"]
+
+    resumed_calls: list[str] = []
+
+    async def resumed_runner(task: WorkerTask) -> WorkerResult:
+        resumed_calls.append(task.task)
+        return WorkerResult(
+            task_id=task.id,
+            subagent_id=f"sub-resumed-{task.id}",
+            child_session_id=f"child-resumed-{task.id}",
+            role_id=task.role_id,
+            status="completed",
+            final_response=f"resumed {task.task}",
+        )
+
+    resumed = await WorkflowRuntime(store, worker_runner=resumed_runner).run(
+        spec,
+        parent_session_id=parent_session_id,
+        parent_run_id=parent_run_id,
+        workflow_run_id=result.workflow_run_id,
+    )
+
+    assert resumed.status == "completed"
+    assert resumed_calls == ["Second"]
+
+
+@pytest.mark.asyncio
+async def test_workflow_runtime_uses_completed_worker_cache(tmp_path: Path) -> None:
+    store = _store()
+    parent_session_id, parent_run_id = _new_session(store)
+    calls: list[str] = []
+
+    async def runner(task: WorkerTask) -> WorkerResult:
+        calls.append(task.id)
+        return WorkerResult(
+            task_id=task.id,
+            subagent_id=f"sub-{task.id}",
+            child_session_id=f"child-{task.id}",
+            role_id=task.role_id,
+            status="completed",
+            final_response="cached output",
+            metadata=task.metadata,
+        )
+
+    spec = load_workflow_spec(
+        _write_spec(
+            tmp_path / "cache.yaml",
+            """
+id: cache
+name: Cache
+phases:
+  - id: inspect
+    kind: single
+    agent: explorer
+    prompt: Inspect
+""",
+        )
+    )
+
+    await WorkflowRuntime(store, worker_runner=runner).run(
+        spec,
+        parent_session_id=parent_session_id,
+        parent_run_id=parent_run_id,
+    )
+    second = await WorkflowRuntime(store, worker_runner=runner).run(
+        spec,
+        parent_session_id=parent_session_id,
+        parent_run_id=parent_run_id,
+    )
+
+    workers = store.workflow_worker_runs.list_for_run(second.workflow_run_id)
+    assert len(calls) == 1
+    assert workers[0]["cache_hit"] is True
+    assert workers[0]["output"] == "cached output"

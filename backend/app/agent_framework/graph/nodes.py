@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Callable
 from typing import Any
 
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.runnables import Runnable
 from langgraph.config import get_stream_writer
 
@@ -52,13 +53,89 @@ def command_scope(metadata: dict[str, Any]) -> str:
     return "unrestricted"
 
 
-def agent_response_update(response: Any) -> dict[str, Any]:
+def _hard_stop_active(state: AgentState) -> bool:
+    budget = state.get("budget") or {}
+    return bool(
+        budget.get("exhausted")
+        or (state.get("loop_signals") or {}).get("detected")
+        or (state.get("drift_signals") or {}).get("detected")
+    )
+
+
+def _hard_stop_reason(state: AgentState) -> str:
+    budget = state.get("budget") or {}
+    if budget.get("exhausted"):
+        reason = str(budget.get("exhausted_reason") or "budget exhausted")
+        return f"运行预算已耗尽（{reason}）"
+    loop = state.get("loop_signals") or {}
+    if loop.get("detected"):
+        return f"检测到重复工具调用（{loop.get('reason') or 'loop detected'}）"
+    drift = state.get("drift_signals") or {}
+    if drift.get("detected"):
+        return f"检测到连续工具失败（{drift.get('reason') or 'drift detected'}）"
+    return "运行保护已触发"
+
+
+def _recent_tool_summaries(state: AgentState, *, limit: int = 3) -> list[str]:
+    summaries: list[str] = []
+    for message in reversed(state.get("messages", []) or []):
+        is_tool = isinstance(message, ToolMessage) or getattr(message, "type", "") == "tool"
+        if not is_tool:
+            continue
+        name = str(getattr(message, "name", "") or "tool")
+        content = " ".join(str(getattr(message, "content", "") or "").split())
+        if len(content) > 180:
+            content = f"{content[:177].rstrip()}..."
+        summaries.append(f"- {name}: {content or '无输出'}")
+        if len(summaries) >= limit:
+            break
+    return list(reversed(summaries))
+
+
+def _suppress_tool_calls_after_hard_stop(
+    state: AgentState,
+    response: Any,
+) -> tuple[Any, bool]:
+    calls = tool_calls(response)
+    if not calls or not _hard_stop_active(state):
+        return response, False
+
+    attempted_tools = ", ".join(
+        str(call.get("name") or "tool") for call in calls[:4]
+    )
+    if len(calls) > 4:
+        attempted_tools = f"{attempted_tools}, ..."
+    reason = _hard_stop_reason(state)
+    existing_text = str(getattr(response, "content", "") or "").strip()
+    summaries = _recent_tool_summaries(state)
+    summary_text = "\n".join(summaries)
+    final_lines = [
+        f"结论：{reason}，系统已阻止继续执行新的工具调用，避免本轮继续空转或拖到总超时。",
+        f"证据：被拦截的新工具调用是 {attempted_tools or '未知'}。",
+    ]
+    if summary_text:
+        final_lines.append(f"最近工具结果摘要：\n{summary_text}")
+    if existing_text:
+        final_lines.append(f"模型在被拦截前的草稿：{existing_text[:240]}")
+    final_lines.append(
+        "风险：本轮没有继续读取更多材料，结论只能基于已获得的信息；如需完整审查，"
+        "请缩小范围、提高预算，或让任务先产出分阶段检查结果。"
+    )
+    final_text = "\n\n".join(final_lines)
+
+    replacement = AIMessage(content=final_text)
+    return replacement, True
+
+
+def agent_response_update(state: AgentState, response: Any) -> dict[str, Any]:
+    response, suppressed = _suppress_tool_calls_after_hard_stop(state, response)
     return {
         "messages": [response],
         "intermediate_steps": [
             {
                 "node": "agent",
                 "tool_calls": tool_calls(response),
+                **({"tool_calls_suppressed": True} if suppressed else {}),
             }
         ],
     }
@@ -77,7 +154,7 @@ def create_agent_node(
         runtime_model = bind_runtime_model_options(model, state.get("metadata"))
         response = runtime_model.invoke(messages)
         raise_if_stopped(state)
-        return agent_response_update(response)
+        return agent_response_update(state, response)
 
     return agent_node
 
@@ -92,7 +169,7 @@ def create_agent_node_async(model: Runnable, tool_registry: ToolRegistry | None 
         runtime_model = bind_runtime_model_options(model, state.get("metadata"))
         response = await runtime_model.ainvoke(messages)
         raise_if_stopped(state)
-        return agent_response_update(response)
+        return agent_response_update(state, response)
 
     return agent_node_async
 
@@ -281,3 +358,172 @@ def create_action_node(tool_registry: ToolRegistry) -> Callable[[AgentState], di
         return {"messages": tool_messages, "intermediate_steps": steps}
 
     return action_node
+
+
+def create_action_node_async(tool_registry: ToolRegistry):
+    runtime = ToolRuntime(tool_registry)
+
+    async def action_node_async(state: AgentState) -> dict[str, Any]:
+        raise_if_stopped(state)
+        messages = state.get("messages", [])
+        if not messages:
+            return {"intermediate_steps": [{"node": "action", "status": "skipped"}]}
+
+        approval_store = get_agent_store()
+        tool_messages: list[ToolMessage] = []
+        steps: list[dict[str, Any]] = []
+        runtime_context = {
+            "session_id": state.get("session_id"),
+            "agent_id": state.get("agent_id", "default"),
+            "metadata": state.get("metadata", {}),
+        }
+        scope = command_scope(dict(runtime_context.get("metadata") or {}))
+        if scope == "unrestricted":
+            runtime_context["approval_granted"] = True
+            runtime_context["command_scope"] = scope
+        session_id = str(runtime_context.get("session_id") or "")
+        agent_id = str(runtime_context.get("agent_id") or "default")
+        run_id = str((runtime_context.get("metadata") or {}).get("run_id") or f"run-{session_id}")
+        all_calls = list(tool_calls(messages[-1]))
+        completed_ids: set[str] = set()
+        stopped = False
+        try:
+            for index, call in enumerate(all_calls):
+                raise_if_stopped(state)
+                name = call.get("name", "")
+                args = call.get("args") or {}
+                tool_call_id = call.get("id") or f"tool_call_{index}"
+                write_stream_event(
+                    {
+                        "type": "tool_start",
+                        "tool": name,
+                        "tool_call_id": tool_call_id,
+                        "args": args if isinstance(args, dict) else {},
+                    }
+                )
+                normalized_args = args if isinstance(args, dict) else {}
+                decision = evaluate_tool_call(name, normalized_args, command_scope=scope)
+                tool_message_status: str
+                artifact_meta: dict[str, Any] | None = None
+                if decision.denied:
+                    content = json.dumps(
+                        {
+                            "status": "error",
+                            "error": {
+                                "code": "permission_denied",
+                                "message": decision.deny_reason
+                                or "Tool call denied by permission policy.",
+                                "details": {"tool": name, "risk": decision.risk_level},
+                            },
+                        },
+                        ensure_ascii=False,
+                    )
+                    tool_message_status = "error"
+                elif decision.needs_approval:
+                    try:
+                        if session_id:
+                            approval_store.ensure_session(session_id, agent_id=agent_id)
+                        approval = approval_store.create_approval_request(
+                            session_id=session_id,
+                            run_id=run_id,
+                            tool_call_id=tool_call_id,
+                            tool_name=name,
+                            args=normalized_args,
+                            risk_level=decision.risk_level,
+                            summary=decision.summary,
+                            metadata={"source": "agent_tool_call"},
+                        )
+                        write_stream_event({"type": "approval_pending", "approval": approval})
+                        content = approval_pending_tool_message(approval)
+                        tool_message_status = "pending_approval"
+                    except Exception as exc:  # noqa: BLE001 - approval errors are visible to the model.
+                        content = f"Approval queue failed for {name}: {type(exc).__name__}: {exc}"
+                        tool_message_status = "error"
+                else:
+                    exec_context = dict(runtime_context)
+                    exec_context["approval_granted"] = True
+                    result = await asyncio.to_thread(
+                        runtime.execute,
+                        name,
+                        normalized_args,
+                        tool_call_id=tool_call_id,
+                        context=exec_context,
+                        store=approval_store,
+                        session_id=session_id or None,
+                        run_id=run_id,
+                        command_scope=scope,
+                        persist=False,
+                    )
+                    content = result.content
+                    tool_message_status = result.status
+                    if result.artifact is not None:
+                        artifact_meta = {
+                            "artifact_id": result.artifact.artifact_id,
+                            "size_bytes": result.artifact.size_bytes,
+                            "spilled": True,
+                        }
+
+                write_stream_event(
+                    {
+                        "type": "tool_end",
+                        "tool": name,
+                        "tool_call_id": tool_call_id,
+                        "status": tool_message_status,
+                        "content": content[:1200],
+                        **({"artifact": artifact_meta} if artifact_meta else {}),
+                    }
+                )
+                if tool_message_status == "ok":
+                    event = special_tool_event(name, content)
+                    if event:
+                        write_stream_event(event)
+
+                tool_messages.append(
+                    ToolMessage(
+                        content=content,
+                        name=name,
+                        tool_call_id=tool_call_id,
+                    )
+                )
+                completed_ids.add(tool_call_id)
+                step: dict[str, Any] = {
+                    "node": "action",
+                    "tool": name,
+                    "tool_call_id": tool_call_id,
+                    "status": tool_message_status,
+                }
+                if artifact_meta is not None:
+                    step["artifact_id"] = artifact_meta["artifact_id"]
+                    step["spilled"] = True
+                steps.append(step)
+                if run_stop_requested(state):
+                    stopped = True
+                    break
+        except RunStopped:
+            stopped = True
+
+        # Fill placeholder ToolMessages for any tool_calls that didn't execute,
+        # so the checkpoint never has orphaned tool_calls without responses.
+        for idx, call in enumerate(all_calls):
+            cid = call.get("id") or f"tool_call_{idx}"
+            if cid not in completed_ids:
+                tool_messages.append(
+                    ToolMessage(
+                        content="Tool execution was cancelled.",
+                        name=call.get("name", ""),
+                        tool_call_id=cid,
+                    )
+                )
+                steps.append({
+                    "node": "action",
+                    "tool": call.get("name", ""),
+                    "tool_call_id": cid,
+                    "status": "cancelled",
+                })
+
+        if stopped:
+            raise RunStopped("Run was stopped by the user.")
+
+        return {"messages": tool_messages, "intermediate_steps": steps}
+
+    return action_node_async

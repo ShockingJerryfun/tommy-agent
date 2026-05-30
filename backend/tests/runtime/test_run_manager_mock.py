@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.agent_framework.runtime import RunCreatePayload, RunManager
+from app.agent_framework.runtime.events import map_stream_part
 from app.agent_framework.storage import PostgresAgentStore, utc_now
 
 
@@ -49,6 +50,14 @@ class BlockingStreamGraph:
     async def astream(self, inputs, config=None, stream_mode=None):
         yield ("messages", (FakeChunk("streamed"), {"langgraph_node": "agent"}))
         await self._release.wait()
+
+
+def test_custom_token_stream_part_is_mapped_for_runtime_guard() -> None:
+    event = map_stream_part(("custom", {"type": "token", "content": "forced final"}))
+
+    assert event is not None
+    assert event.type == "token"
+    assert event.data["content"] == "forced final"
 
 
 @pytest.mark.asyncio
@@ -274,6 +283,72 @@ async def test_run_manager_cancel_force_flushes_pending_delta_and_assistant_mess
     assistant = [m for m in store.list_messages(session_id) if m.role == "assistant"][-1]
     assert assistant.content == "partial"
     assert assistant.metadata["status"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_run_manager_cancel_cancels_active_blocked_task():
+    store = PostgresAgentStore()
+    store.reset_for_tests()
+    release = asyncio.Event()
+    graph = BlockingStreamGraph(release)
+
+    async def factory():
+        return graph
+
+    rm = RunManager(store=store, graph_factory=factory)
+    session_id = store.create_session(agent_id="default")
+    run = await rm.create_and_start_run(
+        RunCreatePayload(session_id=session_id, message="Hi", agent_id="default"),
+    )
+    rid = str(run["id"])
+
+    stream = rm.stream_run_events(rid)
+    try:
+        event = await anext(stream)
+        if event.type == "model_start":
+            event = await anext(stream)
+        assert event.type == "token"
+
+        await rm.cancel_run(rid)
+        task = rm._tasks[rid]
+        await asyncio.wait_for(task, timeout=1)
+
+        assert store.get_run(rid)["status"] == "cancelled"
+        assert task.done()
+    finally:
+        await stream.aclose()
+
+
+@pytest.mark.asyncio
+async def test_run_manager_times_out_blocked_graph_stream(monkeypatch):
+    monkeypatch.setenv("AGENT_TIMEOUT_SECONDS", "0")
+    monkeypatch.setenv("AGENT_RUN_TIMEOUT_GRACE_SECONDS", "0")
+    store = PostgresAgentStore()
+    store.reset_for_tests()
+    release = asyncio.Event()
+    graph = BlockingStreamGraph(release)
+
+    async def factory():
+        return graph
+
+    rm = RunManager(store=store, graph_factory=factory)
+    session_id = store.create_session(agent_id="default")
+    run = await rm.create_and_start_run(
+        RunCreatePayload(session_id=session_id, message="Hi", agent_id="default"),
+    )
+    rid = str(run["id"])
+
+    observed: list[str] = []
+    async for ev in rm.stream_run_events(rid):
+        observed.append(ev.type)
+        if ev.type == "done":
+            break
+
+    finished = store.get_run(rid)
+    assert finished["status"] == "error"
+    assert "运行超过 1 秒" in str(finished["error"])
+    assert "model_error" in observed
+    assert observed[-1] == "error"
 
 
 @pytest.mark.asyncio

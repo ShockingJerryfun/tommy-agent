@@ -239,6 +239,23 @@ function runStepKey(step: RunStep) {
   if (step.type === "tool") {
     return `tool-${String(step.payload?.tool_call_id ?? step.payload?.run_id ?? step.label)}`;
   }
+  if (step.type === "subagent") {
+    const eventType = String(step.payload?.event_type ?? "");
+    const teamTaskId = String(step.payload?.team_task_id ?? "");
+    const workflowPhaseId = String(step.payload?.workflow_phase_id ?? "");
+    const workerRunId = String(step.payload?.worker_run_id ?? "");
+    const teamRunId = String(step.payload?.team_run_id ?? "");
+    const workflowRunId = String(step.payload?.workflow_run_id ?? "");
+    let key = "";
+    if (teamTaskId) key = `team-task-${teamTaskId}`;
+    else if (workflowPhaseId) key = `workflow-phase-${workflowPhaseId}`;
+    else if (workerRunId) key = `worker-${workerRunId}`;
+    else if (teamRunId && eventType.includes("synthesis")) key = `team-synthesis-${teamRunId}`;
+    else if (teamRunId) key = `team-run-${teamRunId}`;
+    else if (workflowRunId) key = `workflow-run-${workflowRunId}`;
+    else key = eventType;
+    return key ? `subagent-${key}` : `subagent-${step.label}`;
+  }
   if (step.type === "agent") {
     const key = step.payload?.thinking_key;
     return key ? `agent-${String(key)}` : "agent";
@@ -250,6 +267,93 @@ function runStepKey(step: RunStep) {
     return "verification";
   }
   return step.type;
+}
+
+const MULTI_AGENT_EVENT_TYPES = new Set([
+  "team_run_started",
+  "team_run_completed",
+  "team_run_failed",
+  "team_task_started",
+  "team_task_completed",
+  "team_task_failed",
+  "team_synthesis_started",
+  "team_synthesis_completed",
+  "team_synthesis_failed",
+  "workflow_run_started",
+  "workflow_run_completed",
+  "workflow_run_failed",
+  "workflow_phase_started",
+  "workflow_phase_completed",
+  "workflow_phase_failed",
+  "workflow_phase_skipped",
+  "workflow_worker_completed",
+  "workflow_worker_failed",
+  "background_run_cancelled",
+]);
+
+function isMultiAgentEventType(type: string) {
+  return MULTI_AGENT_EVENT_TYPES.has(type);
+}
+
+function multiAgentEventStatus(
+  eventType: string,
+  payload: Record<string, unknown>,
+  fallback: RunStep["status"] = "done",
+): RunStep["status"] {
+  const status = String(payload.status ?? fallback);
+  if (status === "running") return "running";
+  if (status === "error" || status === "failed" || eventType.endsWith("_failed")) {
+    return "error";
+  }
+  if (eventType.endsWith("_started")) return "running";
+  return "done";
+}
+
+function multiAgentEventLabel(eventType: string, payload: Record<string, unknown>) {
+  const teamTask = shortRunId(payload.team_task_id);
+  const workflowPhase = String(payload.workflow_phase_id ?? "");
+  const worker = shortRunId(payload.worker_run_id);
+  const labels: Record<string, string> = {
+    team_run_started: "团队运行启动",
+    team_run_completed: "团队运行完成",
+    team_run_failed: "团队运行失败",
+    team_task_started: teamTask ? `团队任务 ${teamTask} 启动` : "团队任务启动",
+    team_task_completed: teamTask ? `团队任务 ${teamTask} 完成` : "团队任务完成",
+    team_task_failed: teamTask ? `团队任务 ${teamTask} 失败` : "团队任务失败",
+    team_synthesis_started: "团队汇总启动",
+    team_synthesis_completed: "团队汇总完成",
+    team_synthesis_failed: "团队汇总失败",
+    workflow_run_started: "工作流启动",
+    workflow_run_completed: "工作流完成",
+    workflow_run_failed: "工作流失败",
+    workflow_phase_started: workflowPhase
+      ? `工作流阶段 ${workflowPhase} 启动`
+      : "工作流阶段启动",
+    workflow_phase_completed: workflowPhase
+      ? `工作流阶段 ${workflowPhase} 完成`
+      : "工作流阶段完成",
+    workflow_phase_failed: workflowPhase
+      ? `工作流阶段 ${workflowPhase} 失败`
+      : "工作流阶段失败",
+    workflow_phase_skipped: workflowPhase
+      ? `工作流阶段 ${workflowPhase} 复用`
+      : "工作流阶段复用",
+    workflow_worker_completed: worker ? `Worker ${worker} 完成` : "Workflow worker 完成",
+    workflow_worker_failed: worker ? `Worker ${worker} 失败` : "Workflow worker 失败",
+    background_run_cancelled: "后台运行已取消",
+  };
+  return labels[eventType] ?? eventType;
+}
+
+function multiAgentPayload(eventType: string, payload: Record<string, unknown>) {
+  return { ...payload, event_type: eventType };
+}
+
+function shortRunId(value: unknown) {
+  const text = String(value ?? "");
+  if (!text) return "";
+  const parts = text.split("-");
+  return parts[parts.length - 1]?.slice(0, 8) ?? text.slice(0, 8);
 }
 
 function appendTextPart(
@@ -725,6 +829,17 @@ function toSessionListItem(item: ApiSessionListItem): SessionListItem {
 }
 
 function toRunStep(event: ApiRunEvent): RunStep {
+  if (isMultiAgentEventType(event.type)) {
+    const payload = multiAgentPayload(event.type, event.payload ?? {});
+    return {
+      id: event.id,
+      type: "subagent",
+      label: multiAgentEventLabel(event.type, payload),
+      status: multiAgentEventStatus(event.type, payload, event.status),
+      at: Date.parse(event.created_at) || Date.now(),
+      payload,
+    };
+  }
   const type =
     event.type === "verification_start" || event.type === "verification_end"
       ? "verification"
@@ -750,6 +865,14 @@ function maxRunEventSequence(events: ApiRunEvent[], runId: string) {
       ? Math.max(max, event.sequence)
       : max;
   }, -1);
+}
+
+function hasRunningMultiAgentStep(steps: RunStep[]) {
+  return steps.some((step) => {
+    if (step.type !== "subagent" || step.status !== "running") return false;
+    const eventType = String(step.payload?.event_type ?? "");
+    return isMultiAgentEventType(eventType);
+  });
 }
 
 function attachTools(
@@ -829,6 +952,7 @@ export function AgentShell() {
     ApprovalRequestView[]
   >([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  const hasRunningMultiAgent = hasRunningMultiAgentStep(steps);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [mobileSessionsOpen, setMobileSessionsOpen] = useState(false);
   const [mobileInspectorOpen, setMobileInspectorOpen] = useState(false);
@@ -905,6 +1029,32 @@ export function AgentShell() {
   useEffect(() => {
     applyDensity(settings.density);
   }, [settings.density]);
+
+  useEffect(() => {
+    if (isStreaming || !sessionId || !hasRunningMultiAgent) return;
+    let cancelled = false;
+    let inFlight = false;
+    const poll = async () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
+      try {
+        await refreshCurrentSession();
+      } catch {
+        // The normal stream/error surface handles foreground failures. This
+        // poll is a best-effort catch-up path for background team/workflow runs.
+      } finally {
+        inFlight = false;
+      }
+    };
+    const interval = window.setInterval(() => {
+      void poll();
+    }, 5000);
+    void poll();
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [isStreaming, sessionId, hasRunningMultiAgent]);
 
   useEffect(() => {
     function isEditableTarget(target: EventTarget | null) {
@@ -1124,6 +1274,18 @@ export function AgentShell() {
     await loadSession(sessionId);
   }
 
+  async function refreshBackgroundRunEvents() {
+    if (!sessionId) return;
+    const payload = await apiJson<unknown>(`/api/sessions/${sessionId}`);
+    if (!isApiSessionDetail(payload)) {
+      throw new Error("Session detail response returned an invalid payload");
+    }
+    const loadedSteps = payload.run_events.map(toRunStep);
+    stepsRef.current = loadedSteps;
+    setSteps(loadedSteps);
+    setPendingApprovals(payload.pending_approvals ?? []);
+  }
+
   async function confirmMemory(memoryId: string) {
     await apiJson<{ memory: MemoryProposalView }>(
       `/api/memory/${memoryId}/confirm`,
@@ -1132,7 +1294,7 @@ export function AgentShell() {
       },
     );
     setMemoryStatus("记忆已确认");
-    await refreshCurrentSession();
+        await refreshBackgroundRunEvents();
   }
 
   async function compactCurrentSession() {
@@ -1990,6 +2152,21 @@ export function AgentShell() {
           `子 Agent ${String(data.target_agent ?? "")} 完成`,
           "done",
           data,
+        ),
+      );
+      return;
+    }
+
+    if (isMultiAgentEventType(payload.type)) {
+      const eventPayload = multiAgentPayload(payload.type, data);
+      const label = multiAgentEventLabel(payload.type, eventPayload);
+      setMemoryStatus(label);
+      persistStep(
+        createRunStep(
+          "subagent",
+          label,
+          multiAgentEventStatus(payload.type, eventPayload),
+          eventPayload,
         ),
       );
       return;

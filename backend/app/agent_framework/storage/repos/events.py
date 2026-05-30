@@ -102,3 +102,19 @@ class EventRepo:
             rows = conn.execute(sql, params).fetchall()
         events = [dict(row) | {"payload": loads(row["payload_json"])} for row in rows]
         return sorted(events, key=lambda item: item["sequence"])
+
+    def delete_events_before(self, cutoff_created_at: str, *, limit: int = 1000) -> int:
+        with self._connector.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id
+                FROM run_events
+                WHERE created_at < ?
+                ORDER BY created_at ASC
+                LIMIT ?
+                """,
+                (cutoff_created_at, int(limit)),
+            ).fetchall()
+            for row in rows:
+                conn.execute("DELETE FROM run_events WHERE id = ?", (row["id"],))
+        return len(rows)
