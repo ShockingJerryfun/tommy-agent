@@ -26,6 +26,12 @@ SECTION_BUDGETS: dict[str, int] = {
     "critic_feedback": 1400,
     "subagent_summary": 1800,
     "team_summary": 1800,
+    "active_team_role": 700,
+    "team_task_board": 1600,
+    "team_mailbox": 1200,
+    "workflow_phase_context": 1600,
+    "child_constraints": 900,
+    "parent_multi_agent_summary": 1800,
 }
 
 SECTION_MIN_CHARS: dict[str, int] = {

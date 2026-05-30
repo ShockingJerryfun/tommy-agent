@@ -29,3 +29,17 @@ class TeamMailbox:
             kind=kind,
             metadata=metadata,
         )
+
+    def list_recent(self, team_id: str, *, limit: int = 10) -> list[dict[str, Any]]:
+        return self.store.agent_team_messages.list_for_team(team_id, limit=limit)
+
+    def bounded_section(self, team_id: str, *, limit: int = 10, max_chars: int = 1200) -> str:
+        messages = self.list_recent(team_id, limit=limit)
+        lines = ["Mailbox"]
+        for message in messages:
+            prefix = message.get("from_member_id") or "team"
+            lines.append(f"- {prefix}: {message.get('content', '')}")
+        text = "\n".join(lines)
+        if len(text) <= max_chars:
+            return text
+        return text[: max(0, max_chars - 3)].rstrip() + "..."

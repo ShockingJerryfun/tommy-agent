@@ -16,9 +16,11 @@ from .agent_teams import (
     AgentTeamMemberRepo,
     AgentTeamMessageRepo,
     AgentTeamRepo,
+    AgentTeamRunRepo,
     AgentTeamTaskRepo,
 )
 from .approvals import ApprovalRepo
+from .artifacts import ArtifactRepo
 from .compaction import CompactionRepo
 from .consolidation import ConsolidationRunRepo
 from .context_pacts import ContextPactRepo
@@ -56,7 +58,9 @@ __all__ = [
     "AgentTeamMemberRepo",
     "AgentTeamMessageRepo",
     "AgentTeamRepo",
+    "AgentTeamRunRepo",
     "AgentTeamTaskRepo",
+    "ArtifactRepo",
     "CompactionRepo",
     "Connector",
     "ConsolidationRunRepo",

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from .attachments import MAX_ATTACHMENT_BYTES, AttachmentStore
+from .background_tasks import BackgroundRunHandle, BackgroundRunQueue, CancellationToken
 from .compaction import (
     CompactionResult,
     compact_messages,
     compact_transcript_records,
     should_compact,
 )
+from .event_bridge import EventBridge
 from .event_bus import EventBus
 from .event_service import RunEventService
 from .events import (
@@ -34,12 +36,16 @@ __all__ = [
     "AttachmentStore",
     "AttachmentRef",
     "cancelled_event",
+    "BackgroundRunHandle",
+    "BackgroundRunQueue",
+    "CancellationToken",
     "compact_messages",
     "compact_transcript_records",
     "CompactionResult",
     "done_event",
     "error_event",
     "EventBus",
+    "EventBridge",
     "format_sse",
     "GraphRuntime",
     "map_langgraph_event",

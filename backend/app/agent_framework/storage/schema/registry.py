@@ -7,6 +7,7 @@ from .versions.v0002_knowledge import KNOWLEDGE_DDL
 from .versions.v0003_skills import SKILLS_DDL
 from .versions.v0004_operations import OPERATIONS_DDL
 from .versions.v0005_multi_agent import MULTI_AGENT_DDL
+from .versions.v0006_production_multi_agent import PRODUCTION_MULTI_AGENT_DDL
 
 
 @dataclass(frozen=True)
@@ -22,6 +23,7 @@ _SCHEMA_VERSIONS = (
     SchemaVersion(3, "skill and delegation tables", SKILLS_DDL),
     SchemaVersion(4, "operations tables", OPERATIONS_DDL),
     SchemaVersion(5, "multi-agent team and workflow tables", MULTI_AGENT_DDL),
+    SchemaVersion(6, "production multi-agent runtime tables", PRODUCTION_MULTI_AGENT_DDL),
 )
 
 CURRENT_SCHEMA_VERSION = _SCHEMA_VERSIONS[-1].version

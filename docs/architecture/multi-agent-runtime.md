@@ -1,8 +1,154 @@
 # Multi-Agent Runtime
 
-This document describes Tommy's first production foundation for externalized
-agents, bounded worker execution, lead-controlled teams, and declarative
-workflows.
+This document describes Tommy's production foundation for externalized agents,
+bounded worker execution, lead-controlled teams, declarative workflows, and
+inspectable multi-agent runtime state.
+
+## Production Runtime DT: 2026-05-30
+
+This DT is the source of truth for the production multi-agent backend runtime.
+Implementation, tests, and acceptance criteria must map back to these
+requirements.
+
+### Runtime Model
+
+Multi-agent runtime state must be queryable through explicit database columns
+and tables. JSON metadata is allowed only for backward compatibility,
+debug-only details, or auxiliary non-queryable context.
+
+Queryable state includes:
+
+- parent and child run lineage: `parent_run_id`, `child_session_id`,
+  `child_run_id`, `subagent_run_id`
+- agent/team/workflow lineage: `role_id`, `agent_definition_id`, `team_id`,
+  `team_run_id`, `team_task_id`, `workflow_run_id`, `phase_run_id`,
+  `workflow_phase_id`, `worker_run_id`
+- approvals and execution status: `approval_id`, `status`, `started_at`,
+  `finished_at`, `error_type`, `error_message`
+- cross-boundary references: artifact ids, event ids, cache key, and input hash
+
+`ChildRunService` is the canonical child execution path. `SubagentDelegator`
+remains a compatibility adapter. Team and workflow workers must schedule
+through `WorkerPool`, which defaults to `ChildRunService`.
+
+### Persistence
+
+The database must model team executions separately from team definitions:
+
+- `agent_teams` stores team definitions.
+- `agent_team_runs` stores a specific execution of a team definition, including
+  `team_id`, parent lineage, approval, status, goal, summary, timestamps, and
+  auxiliary metadata.
+- `agent_team_tasks` stores task board state and links to the active team run
+  when tasks execute.
+- `agent_team_messages` stores bounded mailbox messages.
+
+`subagent_runs` must expose production lineage columns for roles, agent
+definitions, team/workflow linkage, approvals, status, errors, and timestamps.
+Existing metadata fields may mirror these values for compatibility, but must
+not be the primary query path.
+
+`workflow_runs`, `workflow_phase_runs`, and `workflow_worker_runs` must persist
+status and lineage. `workflow_worker_runs.subagent_run_id` is the canonical
+reference to the child execution. Worker output stored on worker rows must be
+bounded.
+
+Large cross-boundary outputs belong in `artifacts`, with explicit owner fields,
+artifact kind, URI/path/hash/size, summary, and creation time. Parent prompts
+must receive artifact references and bounded summaries, not full transcripts.
+
+### Background Queue
+
+Team and workflow tool calls must enqueue execution and return immediately with
+compact handles. `BackgroundRunQueue` owns in-process asyncio task tracking,
+persists status, supports status reads, cancellation, active listing, and
+restart orphan handling. Cancellation must be visible to team and workflow
+runtimes before scheduling future work.
+
+### Event Bridge
+
+Team, workflow, worker, phase, and background cancellation progress must be
+persisted as run events compatible with the existing event style. Events must be
+queryable by parent run through `run_events.run_id` and by `team_run_id` or
+`workflow_run_id` through event payload fields.
+
+### Team Runtime
+
+`create_agent_team` creates a team definition and optional initial tasks. It
+does not synchronously run the team.
+
+`run_agent_team` starts an `agent_team_runs` execution and enqueues
+`TeamRuntime`. If no tasks exist, the lead planner creates schema-validated
+tasks from the goal, with a hard maximum task count. Ready tasks execute through
+`WorkerPool` in dependency order. Independent ready tasks may run in parallel.
+Workers receive bounded team context: assigned task, task board summary, latest
+mailbox messages, and role constraints. Lead synthesis runs after task
+execution and stores a bounded final summary.
+
+Child agents must not be able to spawn teams or workflows.
+
+### Workflow Runtime
+
+`run_agent_workflow` validates a declarative workflow spec, persists a
+`workflow_run`, enqueues execution, and returns immediately. Workflow execution
+must not use a synchronous async-thread bridge.
+
+`WorkflowRuntime` is executed by `BackgroundRunQueue` and delegates phase work
+to `PhaseRunner`. The runtime enforces max worker count, max wall seconds,
+phase timeout, and available worker timeout. Cancellation must be honored
+between phases and before scheduling workers. Progress events and phase/worker
+statuses must be persisted.
+
+Worker cache keys may skip deterministic duplicate work when they include role,
+prompt/input, workflow spec identity/version, and agent definition version or
+prompt hash. Cache hits must be recorded explicitly.
+
+### Prompt Context
+
+Prompt context may include bounded sections only when relevant:
+
+- `active_team_role`
+- `team_task_board`
+- `team_mailbox`
+- `workflow_phase_context`
+- `child_constraints`
+- `parent_multi_agent_summary`
+
+No full child transcript may be injected into parent, team, or workflow
+prompts. Prompt snapshots must make these bounded sections inspectable.
+
+### Tools and Permissions
+
+Required tools:
+
+- `create_agent_team`
+- `run_agent_team`
+- `get_agent_team_status`
+- `cancel_agent_team_run`
+- `run_agent_workflow`
+- `get_agent_workflow_status`
+- `cancel_agent_workflow_run`
+- `rerun_failed_workflow_phase`
+
+Run and cancellation tools require approval. Status tools are read-only and do
+not require approval. Child registries must exclude team/workflow creation,
+execution, status, cancellation, and rerun tools.
+
+### Retention
+
+The storage layer must expose deterministic cleanup hooks for old completed
+child runs, large child outputs, orphan artifacts, and interrupted background
+jobs. A scheduler is optional; repository methods and tests are required.
+
+### Test Requirements
+
+Tests must avoid live LLM calls and use fake planners, fake workers, or
+deterministic services. Coverage must include DB lineage columns, artifacts,
+background queue success/failure/cancellation/orphans, event ordering, team
+planning/dependencies/parallel execution/synthesis/status/cancel, mailbox
+injection, child registry recursion guards, workflow enqueue/status/timeout/
+cancellation/failure/cache where implemented, bounded parent context, no
+transcript leakage, approval behavior, and existing `delegate_task` behavior.
 
 ## AgentDefinition
 
@@ -189,4 +335,3 @@ Team and workflow summaries are designed for prompt injection:
 - bounded summaries are truncated before entering parent context
 - child run references are preserved for audit and follow-up
 - raw child transcripts stay outside the parent prompt
-

@@ -7,8 +7,10 @@ from .repos import (
     AgentTeamMemberRepo,
     AgentTeamMessageRepo,
     AgentTeamRepo,
+    AgentTeamRunRepo,
     AgentTeamTaskRepo,
     ApprovalRepo,
+    ArtifactRepo,
     CompactionRepo,
     Connector,
     ConsolidationRunRepo,
@@ -78,7 +80,9 @@ class PostgresAgentStore(
         self.agent_teams = AgentTeamRepo(self._connector)
         self.agent_team_members = AgentTeamMemberRepo(self._connector)
         self.agent_team_tasks = AgentTeamTaskRepo(self._connector)
+        self.agent_team_runs = AgentTeamRunRepo(self._connector)
         self.agent_team_messages = AgentTeamMessageRepo(self._connector)
+        self.artifacts = ArtifactRepo(self._connector)
         self.workflow_specs = WorkflowSpecRepo(self._connector)
         self.workflow_runs = WorkflowRunRepo(self._connector)
         self.workflow_phase_runs = WorkflowPhaseRunRepo(self._connector)

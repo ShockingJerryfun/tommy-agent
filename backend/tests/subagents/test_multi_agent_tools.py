@@ -42,31 +42,56 @@ def test_default_registry_exposes_multi_agent_tools_but_subagents_do_not() -> No
     default_names = set(create_default_registry().by_name)
     researcher_names = set(registry_for_role("researcher").by_name)
 
-    assert {"create_agent_team", "run_agent_workflow"}.issubset(default_names)
+    assert {
+        "create_agent_team",
+        "run_agent_team",
+        "get_agent_team_status",
+        "cancel_agent_team_run",
+        "run_agent_workflow",
+        "get_agent_workflow_status",
+        "cancel_agent_workflow_run",
+        "rerun_failed_workflow_phase",
+    }.issubset(default_names)
     assert "create_agent_team" not in researcher_names
+    assert "run_agent_team" not in researcher_names
+    assert "get_agent_team_status" not in researcher_names
+    assert "cancel_agent_team_run" not in researcher_names
     assert "run_agent_workflow" not in researcher_names
+    assert "get_agent_workflow_status" not in researcher_names
+    assert "cancel_agent_workflow_run" not in researcher_names
+    assert "rerun_failed_workflow_phase" not in researcher_names
 
 
 def test_multi_agent_tools_require_approval() -> None:
     team_decision = evaluate_tool_call(
-        "create_agent_team",
-        {"goal": "audit", "members": [{"role": "reviewer"}]},
+        "run_agent_team",
+        {"team_id": "team-1"},
     )
     workflow_decision = evaluate_tool_call(
         "run_agent_workflow",
         {"workflow_yaml": "id: x\nname: X\nphases: []"},
     )
+    status_decision = evaluate_tool_call(
+        "get_agent_team_status",
+        {"team_run_id": "team-run-1"},
+    )
+    cancel_decision = evaluate_tool_call(
+        "cancel_agent_workflow_run",
+        {"workflow_run_id": "workflow-1"},
+    )
 
     assert team_decision.needs_approval is True
     assert workflow_decision.needs_approval is True
+    assert status_decision.needs_approval is False
+    assert cancel_decision.needs_approval is True
     assert team_decision.risk_level == "medium"
     assert workflow_decision.risk_level == "medium"
 
 
 def test_multi_agent_tools_require_approval_even_in_unrestricted_scope() -> None:
     team_decision = evaluate_tool_call(
-        "create_agent_team",
-        {"goal": "audit", "members": [{"role": "reviewer"}]},
+        "run_agent_team",
+        {"team_id": "team-1"},
         command_scope="unrestricted",
     )
     workflow_decision = evaluate_tool_call(
@@ -139,6 +164,67 @@ def test_create_agent_team_tool_creates_team_when_approved() -> None:
     assert team["metadata"]["working_directory"] == "/repo"
     assert team["metadata"]["command_scope"] == "restricted"
     assert team["metadata"]["permission_mode"] == "read_only"
+
+
+def test_run_agent_team_tool_enqueues_and_status_can_be_polled() -> None:
+    store = _store()
+    session_id, run_id = _new_session(store)
+    registry = create_default_registry()
+    created = json.loads(
+        registry.invoke(
+            "create_agent_team",
+            {
+                "goal": "Audit storage",
+                "members": [{"role": "reviewer", "agent_definition_id": "reviewer"}],
+                "tasks": [{"title": "Review repos", "description": "Check persistence"}],
+            },
+            context={
+                "session_id": session_id,
+                "run_id": run_id,
+                "approval_granted": True,
+                "approval_id": "appr-create",
+            },
+        )
+    )
+
+    queued = json.loads(
+        registry.invoke(
+            "run_agent_team",
+            {"team_id": created["team_id"]},
+            context={
+                "session_id": session_id,
+                "run_id": run_id,
+                "approval_granted": False,
+            },
+        )
+    )
+    assert queued["status"] == "queued"
+    assert queued["team_run_id"] == ""
+
+    running = json.loads(
+        registry.invoke(
+            "run_agent_team",
+            {"team_id": created["team_id"]},
+            context={
+                "session_id": session_id,
+                "run_id": run_id,
+                "approval_granted": True,
+                "approval_id": "appr-run",
+            },
+        )
+    )
+
+    assert running["status"] in {"queued", "running"}
+    assert running["team_run_id"].startswith("team-run-")
+    status = json.loads(
+        registry.invoke(
+            "get_agent_team_status",
+            {"team_run_id": running["team_run_id"]},
+            context={"session_id": session_id, "run_id": run_id},
+        )
+    )
+    assert status["team_run_id"] == running["team_run_id"]
+    assert "tasks" in status
 
 
 def test_delegate_task_tool_forwards_parent_metadata_to_run_delegate_task(
@@ -225,3 +311,44 @@ phases:
     assert payload["status"] == "queued"
     assert payload["workflow_run_id"] == ""
     assert payload["summary"]
+
+
+def test_run_agent_workflow_tool_enqueues_when_approved_and_status_can_be_polled() -> None:
+    store = _store()
+    session_id, run_id = _new_session(store)
+    registry = create_default_registry()
+
+    payload = json.loads(
+        registry.invoke(
+            "run_agent_workflow",
+            {
+                "workflow_yaml": """
+id: audit
+name: Audit
+phases:
+  - id: inspect
+    kind: single
+    agent: explorer
+    prompt: Inspect repository
+""",
+            },
+            context={
+                "session_id": session_id,
+                "run_id": run_id,
+                "approval_granted": True,
+                "approval_id": "appr-workflow",
+            },
+        )
+    )
+
+    assert payload["status"] in {"queued", "running"}
+    assert payload["workflow_run_id"].startswith("workflow-")
+    status = json.loads(
+        registry.invoke(
+            "get_agent_workflow_status",
+            {"workflow_run_id": payload["workflow_run_id"]},
+            context={"session_id": session_id, "run_id": run_id},
+        )
+    )
+    assert status["workflow_run_id"] == payload["workflow_run_id"]
+    assert "phases" in status

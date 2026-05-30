@@ -6,12 +6,14 @@ from .registry import SCHEMA_DDL
 
 _TRUNCATE_SQL = """
 TRUNCATE TABLE
+    artifacts,
     workflow_worker_runs,
     workflow_phase_runs,
     workflow_runs,
     workflow_specs,
     agent_team_messages,
     agent_team_tasks,
+    agent_team_runs,
     agent_team_members,
     agent_teams,
     skill_activation_traces,

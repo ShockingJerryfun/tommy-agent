@@ -6,7 +6,14 @@ from typing import Any
 
 from .budgets import REQUIRED_SECTIONS, SECTION_BUDGETS, SECTION_MIN_CHARS
 from .pact import pact_markdown
+from .team_sections import (
+    active_team_role_section,
+    parent_multi_agent_summary_section,
+    team_mailbox_section,
+    team_task_board_section,
+)
 from .types import Section
+from .workflow_sections import child_constraints_section, workflow_phase_context_section
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +37,12 @@ RENDER_ORDER: dict[str, int] = {
     "critic_feedback": 36,
     "subagent_summary": 88,
     "team_summary": 87,
+    "parent_multi_agent_summary": 86,
+    "active_team_role": 76,
+    "team_task_board": 77,
+    "team_mailbox": 79,
+    "workflow_phase_context": 77,
+    "child_constraints": 52,
 }
 
 
@@ -162,6 +175,41 @@ def build_section_drafts(
             priority=70,
         ),
         make_section(
+            "active_team_role",
+            "Active Team Role",
+            active_team_role_section(metadata),
+            source="multi_agent.team_context",
+            priority=78,
+        ),
+        make_section(
+            "team_task_board",
+            "Team Task Board",
+            team_task_board_section(store, metadata),
+            source="agent_team_tasks",
+            priority=78,
+        ),
+        make_section(
+            "team_mailbox",
+            "Team Mailbox",
+            team_mailbox_section(store, metadata),
+            source="agent_team_messages",
+            priority=76,
+        ),
+        make_section(
+            "workflow_phase_context",
+            "Workflow Phase Context",
+            workflow_phase_context_section(store, metadata),
+            source="workflow_phase_runs",
+            priority=78,
+        ),
+        make_section(
+            "child_constraints",
+            "Child Constraints",
+            child_constraints_section(metadata),
+            source="multi_agent.child_constraints",
+            priority=88,
+        ),
+        make_section(
             "curated_memory",
             "Static Profile from Markdown - MEMORY Seed/Profile",
             read_optional(agent_root / "MEMORY.md"),
@@ -215,6 +263,13 @@ def build_section_drafts(
             "Team Results",
             team_summary_markdown(store, session_id),
             source="store.agent_teams",
+            priority=70,
+        ),
+        make_section(
+            "parent_multi_agent_summary",
+            "Parent Multi-Agent Summary",
+            parent_multi_agent_summary_section(store, parent_session_id=session_id),
+            source="multi_agent.summary",
             priority=70,
         ),
         make_section(

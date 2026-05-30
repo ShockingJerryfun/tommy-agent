@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from typing import Any
 
+from ..runtime.background_tasks import CancellationToken
+from ..runtime.event_bridge import EventBridge
 from ..storage import PostgresAgentStore
-from ..workers import WorkerPool, WorkerRunner, WorkerTask
+from ..workers import WorkerRunner, WorkerTask
 from ..workers.context import merge_child_parent_metadata
 from .models import WorkflowPhaseSpec, WorkflowRunResult, WorkflowSpec
+from .phase_runner import PhaseRunner
 from .reducers import join_outputs_for_reduce, truncate_text
 from .summary import workflow_summary_markdown
 
@@ -21,9 +25,11 @@ class WorkflowRuntime:
         store: PostgresAgentStore,
         *,
         worker_runner: WorkerRunner | None = None,
+        event_bridge: EventBridge | None = None,
     ) -> None:
         self.store = store
         self._worker_runner = worker_runner
+        self._events = event_bridge or EventBridge(store)
 
     async def run(
         self,
@@ -33,6 +39,57 @@ class WorkflowRuntime:
         parent_run_id: str,
         inputs: dict[str, Any] | None = None,
         parent_metadata: dict[str, Any] | None = None,
+        workflow_run_id: str | None = None,
+        cancellation_token: CancellationToken | None = None,
+    ) -> WorkflowRunResult:
+        token = cancellation_token or CancellationToken()
+        try:
+            return await asyncio.wait_for(
+                self._run_inner(
+                    spec,
+                    parent_session_id=parent_session_id,
+                    parent_run_id=parent_run_id,
+                    inputs=inputs,
+                    parent_metadata=parent_metadata,
+                    workflow_run_id=workflow_run_id,
+                    cancellation_token=token,
+                ),
+                timeout=spec.budget.max_wall_seconds,
+            )
+        except TimeoutError:
+            run = self._workflow_run_for_failure(
+                spec=spec,
+                parent_session_id=parent_session_id,
+                parent_run_id=parent_run_id,
+                inputs=inputs,
+                workflow_run_id=workflow_run_id,
+            )
+            message = f"workflow timed out after {spec.budget.max_wall_seconds:g} seconds"
+            self.store.workflow_runs.update(
+                run["id"],
+                status="failed",
+                summary=message,
+                error_type="TimeoutError",
+                error_message=message,
+                finished=True,
+            )
+            return WorkflowRunResult(
+                workflow_run_id=run["id"],
+                status="failed",
+                summary=message,
+                outputs=[],
+            )
+
+    async def _run_inner(
+        self,
+        spec: WorkflowSpec,
+        *,
+        parent_session_id: str,
+        parent_run_id: str,
+        inputs: dict[str, Any] | None,
+        parent_metadata: dict[str, Any] | None,
+        workflow_run_id: str | None,
+        cancellation_token: CancellationToken,
     ) -> WorkflowRunResult:
         resolved_inputs = dict(spec.inputs)
         if inputs:
@@ -45,20 +102,34 @@ class WorkflowRuntime:
             spec=spec.as_dict(),
             metadata=spec.metadata,
         )
-        run = self.store.workflow_runs.create(
-            spec_id=spec.id,
-            parent_session_id=parent_session_id,
-            parent_run_id=parent_run_id,
-            inputs=resolved_inputs,
-        )
-        workflow_run_id = run["id"]
+        if workflow_run_id:
+            existing = self.store.workflow_runs.get(workflow_run_id)
+            if existing is None:
+                raise KeyError(f"unknown workflow run: {workflow_run_id}")
+            run = existing
+        else:
+            run = self.store.workflow_runs.create(
+                spec_id=spec.id,
+                parent_session_id=parent_session_id,
+                parent_run_id=parent_run_id,
+                inputs=resolved_inputs,
+            )
+            workflow_run_id = run["id"]
         self.store.workflow_runs.update(workflow_run_id, status="running")
+        self._events.emit_workflow_event(
+            "workflow_run_started",
+            session_id=parent_session_id,
+            parent_run_id=parent_run_id,
+            workflow_run_id=workflow_run_id,
+            status="running",
+        )
 
         phase_outputs: dict[str, list[str]] = {}
         worker_count = 0
         workflow_status = "completed"
         try:
             for phase in spec.phases:
+                cancellation_token.raise_if_cancelled()
                 phase_run = self.store.workflow_phase_runs.create(
                     workflow_run_id=workflow_run_id,
                     phase_id=phase.id,
@@ -67,6 +138,15 @@ class WorkflowRuntime:
                     metadata=phase.metadata,
                 )
                 self.store.workflow_phase_runs.update(phase_run["id"], status="running")
+                self._events.emit_workflow_event(
+                    "workflow_phase_started",
+                    session_id=parent_session_id,
+                    parent_run_id=parent_run_id,
+                    workflow_run_id=workflow_run_id,
+                    phase_run_id=phase_run["id"],
+                    workflow_phase_id=phase.id,
+                    status="running",
+                )
                 worker_tasks = self._build_worker_tasks(
                     phase=phase,
                     phase_run_id=phase_run["id"],
@@ -94,14 +174,14 @@ class WorkflowRuntime:
                     )
                     raise ValueError(message)
 
-                results = await WorkerPool(
+                results = await PhaseRunner(
                     store=self.store,
-                    runner=self._worker_runner,
+                    worker_runner=self._worker_runner,
                     max_concurrency=spec.max_concurrency,
-                ).run(worker_tasks)
+                ).run(worker_tasks, cancellation_token=cancellation_token)
                 outputs = [truncate_text(result.final_response, 2000) for result in results]
                 for index, result in enumerate(results):
-                    self.store.workflow_worker_runs.create(
+                    worker = self.store.workflow_worker_runs.create(
                         workflow_run_id=workflow_run_id,
                         phase_run_id=phase_run["id"],
                         worker_index=index,
@@ -111,7 +191,23 @@ class WorkflowRuntime:
                         output=truncate_text(result.final_response, 2000),
                         subagent_run_id=result.subagent_id,
                         child_session_id=result.child_session_id,
+                        error_type=str(result.metadata.get("error_type") or "")
+                        if result.metadata
+                        else "",
+                        error_message="" if result.status == "completed" else result.final_response,
                         metadata=result.metadata,
+                    )
+                    self._events.emit_workflow_event(
+                        "workflow_worker_completed"
+                        if result.status == "completed"
+                        else "workflow_worker_failed",
+                        session_id=parent_session_id,
+                        parent_run_id=parent_run_id,
+                        workflow_run_id=workflow_run_id,
+                        phase_run_id=phase_run["id"],
+                        workflow_phase_id=phase.id,
+                        worker_run_id=worker["id"],
+                        status=result.status,
                     )
                 phase_status = (
                     "completed"
@@ -127,6 +223,27 @@ class WorkflowRuntime:
                     outputs=outputs,
                     finished=True,
                 )
+                self._events.emit_workflow_event(
+                    "workflow_phase_completed"
+                    if phase_status == "completed"
+                    else "workflow_phase_failed",
+                    session_id=parent_session_id,
+                    parent_run_id=parent_run_id,
+                    workflow_run_id=workflow_run_id,
+                    phase_run_id=phase_run["id"],
+                    workflow_phase_id=phase.id,
+                    status=phase_status,
+                )
+        except asyncio.CancelledError:
+            self.store.workflow_runs.update(workflow_run_id, status="stopped", finished=True)
+            self._events.emit_workflow_event(
+                "background_run_cancelled",
+                session_id=parent_session_id,
+                parent_run_id=parent_run_id,
+                workflow_run_id=workflow_run_id,
+                status="cancelled",
+            )
+            raise
         except ValueError:
             raise
 
@@ -141,12 +258,49 @@ class WorkflowRuntime:
             summary=summary,
             finished=True,
         )
+        self._events.emit_workflow_event(
+            "workflow_run_completed" if workflow_status == "completed" else "workflow_run_failed",
+            session_id=parent_session_id,
+            parent_run_id=parent_run_id,
+            workflow_run_id=workflow_run_id,
+            status=workflow_status,
+        )
         final_outputs = phase_outputs.get(spec.phases[-1].id, []) if spec.phases else []
         return WorkflowRunResult(
             workflow_run_id=workflow_run_id,
             status=workflow_status,
             summary=summary,
             outputs=final_outputs,
+        )
+
+    def _workflow_run_for_failure(
+        self,
+        *,
+        spec: WorkflowSpec,
+        parent_session_id: str,
+        parent_run_id: str,
+        inputs: dict[str, Any] | None,
+        workflow_run_id: str | None,
+    ) -> dict[str, Any]:
+        if workflow_run_id:
+            existing = self.store.workflow_runs.get(workflow_run_id)
+            if existing is not None:
+                return existing
+        resolved_inputs = dict(spec.inputs)
+        if inputs:
+            resolved_inputs.update(inputs)
+        self.store.workflow_specs.upsert(
+            spec_id=spec.id,
+            name=spec.name,
+            description=spec.description,
+            spec=spec.as_dict(),
+            metadata=spec.metadata,
+        )
+        return self.store.workflow_runs.create(
+            spec_id=spec.id,
+            parent_session_id=parent_session_id,
+            parent_run_id=parent_run_id,
+            inputs=resolved_inputs,
         )
 
     def _build_worker_tasks(

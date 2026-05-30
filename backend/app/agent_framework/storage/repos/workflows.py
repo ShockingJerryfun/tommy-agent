@@ -52,6 +52,11 @@ class WorkflowSpecRepo:
 
 
 class WorkflowRunRepo:
+    SELECT_COLUMNS = (
+        "id, spec_id, parent_session_id, parent_run_id, status, summary, inputs_json, "
+        "metadata_json, error_type, error_message, started_at, created_at, updated_at, finished_at"
+    )
+
     def __init__(self, connector: Connector) -> None:
         self._connector = connector
 
@@ -95,6 +100,8 @@ class WorkflowRunRepo:
         status: str | None = None,
         summary: str | None = None,
         metadata_patch: dict[str, Any] | None = None,
+        error_type: str | None = None,
+        error_message: str | None = None,
         finished: bool = False,
     ) -> dict[str, Any] | None:
         existing = self.get(run_id)
@@ -106,11 +113,13 @@ class WorkflowRunRepo:
         new_status = status or existing["status"]
         now = utc_now()
         finished_at = now if finished or new_status in {"completed", "failed", "stopped"} else None
+        started_at = now if new_status == "running" and not existing.get("started_at") else None
         with self._connector.connect() as conn:
             conn.execute(
                 """
                 UPDATE workflow_runs
-                SET status = ?, summary = ?, metadata_json = ?, updated_at = ?,
+                SET status = ?, summary = ?, metadata_json = ?, error_type = ?,
+                    error_message = ?, started_at = COALESCE(started_at, ?), updated_at = ?,
                     finished_at = COALESCE(?, finished_at)
                 WHERE id = ?
                 """,
@@ -118,6 +127,9 @@ class WorkflowRunRepo:
                     new_status,
                     summary if summary is not None else existing["summary"],
                     dumps(metadata),
+                    error_type if error_type is not None else existing["error_type"],
+                    error_message if error_message is not None else existing["error_message"],
+                    started_at,
                     now,
                     finished_at,
                     run_id,
@@ -127,7 +139,10 @@ class WorkflowRunRepo:
 
     def get(self, run_id: str) -> dict[str, Any] | None:
         with self._connector.connect() as conn:
-            row = conn.execute("SELECT * FROM workflow_runs WHERE id = ?", (run_id,)).fetchone()
+            row = conn.execute(
+                f"SELECT {self.SELECT_COLUMNS} FROM workflow_runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
         if row is None:
             return None
         return dict(row) | {
@@ -135,8 +150,55 @@ class WorkflowRunRepo:
             "metadata": loads(row["metadata_json"]),
         }
 
+    def list_for_parent_run(self, parent_run_id: str) -> list[dict[str, Any]]:
+        with self._connector.connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT {self.SELECT_COLUMNS}
+                FROM workflow_runs
+                WHERE parent_run_id = ?
+                ORDER BY created_at DESC
+                """,
+                (parent_run_id,),
+            ).fetchall()
+        return [_hydrate_run(row) for row in rows]
+
+    def list_running(self) -> list[dict[str, Any]]:
+        with self._connector.connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT {self.SELECT_COLUMNS}
+                FROM workflow_runs
+                WHERE status = 'running'
+                ORDER BY created_at ASC
+                """
+            ).fetchall()
+        return [_hydrate_run(row) for row in rows]
+
+    def mark_running_background_jobs_interrupted(self) -> int:
+        rows = self.list_running()
+        now = utc_now()
+        with self._connector.connect() as conn:
+            for row in rows:
+                conn.execute(
+                    """
+                    UPDATE workflow_runs
+                    SET status = 'stopped', error_type = 'Interrupted',
+                        error_message = 'Background process restarted while workflow was running.',
+                        updated_at = ?, finished_at = COALESCE(finished_at, ?)
+                    WHERE id = ?
+                    """,
+                    (now, now, row["id"]),
+                )
+        return len(rows)
+
 
 class WorkflowPhaseRunRepo:
+    SELECT_COLUMNS = (
+        "id, workflow_run_id, phase_id, kind, agent, status, outputs_json, metadata_json, "
+        "error_type, error_message, started_at, created_at, updated_at, finished_at"
+    )
+
     def __init__(self, connector: Connector) -> None:
         self._connector = connector
 
@@ -170,6 +232,8 @@ class WorkflowPhaseRunRepo:
         *,
         status: str | None = None,
         outputs: list[str] | None = None,
+        error_type: str | None = None,
+        error_message: str | None = None,
         finished: bool = False,
     ) -> dict[str, Any] | None:
         existing = self.get(phase_run_id)
@@ -178,17 +242,22 @@ class WorkflowPhaseRunRepo:
         new_status = status or existing["status"]
         now = utc_now()
         finished_at = now if finished or new_status in {"completed", "failed", "stopped"} else None
+        started_at = now if new_status == "running" and not existing.get("started_at") else None
         with self._connector.connect() as conn:
             conn.execute(
                 """
                 UPDATE workflow_phase_runs
-                SET status = ?, outputs_json = ?, updated_at = ?,
+                SET status = ?, outputs_json = ?, error_type = ?, error_message = ?,
+                    started_at = COALESCE(started_at, ?), updated_at = ?,
                     finished_at = COALESCE(?, finished_at)
                 WHERE id = ?
                 """,
                 (
                     new_status,
                     dumps(outputs if outputs is not None else existing["outputs"]),
+                    error_type if error_type is not None else existing["error_type"],
+                    error_message if error_message is not None else existing["error_message"],
+                    started_at,
                     now,
                     finished_at,
                     phase_run_id,
@@ -199,7 +268,7 @@ class WorkflowPhaseRunRepo:
     def get(self, phase_run_id: str) -> dict[str, Any] | None:
         with self._connector.connect() as conn:
             row = conn.execute(
-                "SELECT * FROM workflow_phase_runs WHERE id = ?",
+                f"SELECT {self.SELECT_COLUMNS} FROM workflow_phase_runs WHERE id = ?",
                 (phase_run_id,),
             ).fetchone()
         if row is None:
@@ -209,8 +278,27 @@ class WorkflowPhaseRunRepo:
             "metadata": loads(row["metadata_json"]),
         }
 
+    def list_for_run(self, workflow_run_id: str) -> list[dict[str, Any]]:
+        with self._connector.connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT {self.SELECT_COLUMNS}
+                FROM workflow_phase_runs
+                WHERE workflow_run_id = ?
+                ORDER BY created_at ASC
+                """,
+                (workflow_run_id,),
+            ).fetchall()
+        return [_hydrate_phase(row) for row in rows]
+
 
 class WorkflowWorkerRunRepo:
+    SELECT_COLUMNS = (
+        "id, workflow_run_id, phase_run_id, worker_index, task_id, subagent_run_id, "
+        "child_session_id, role, status, output, error_type, error_message, cache_key, "
+        "input_hash, cache_hit, metadata_json, started_at, created_at, updated_at, finished_at"
+    )
+
     def __init__(self, connector: Connector) -> None:
         self._connector = connector
 
@@ -226,6 +314,11 @@ class WorkflowWorkerRunRepo:
         output: str,
         subagent_run_id: str = "",
         child_session_id: str = "",
+        error_type: str = "",
+        error_message: str = "",
+        cache_key: str = "",
+        input_hash: str = "",
+        cache_hit: bool = False,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         run_id = f"workflow-worker-{uuid4().hex}"
@@ -236,9 +329,10 @@ class WorkflowWorkerRunRepo:
                 INSERT INTO workflow_worker_runs(
                     id, workflow_run_id, phase_run_id, worker_index, task_id,
                     subagent_run_id, child_session_id, role, status, output,
-                    metadata_json, created_at, updated_at, finished_at
+                    error_type, error_message, cache_key, input_hash, cache_hit,
+                    metadata_json, started_at, created_at, updated_at, finished_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run_id,
@@ -251,7 +345,13 @@ class WorkflowWorkerRunRepo:
                     role,
                     status,
                     output,
+                    error_type,
+                    error_message,
+                    cache_key,
+                    input_hash,
+                    1 if cache_hit else 0,
                     dumps(metadata),
+                    now,
                     now,
                     now,
                     now,
@@ -262,7 +362,7 @@ class WorkflowWorkerRunRepo:
     def get(self, run_id: str) -> dict[str, Any] | None:
         with self._connector.connect() as conn:
             row = conn.execute(
-                "SELECT * FROM workflow_worker_runs WHERE id = ?",
+                f"SELECT {self.SELECT_COLUMNS} FROM workflow_worker_runs WHERE id = ?",
                 (run_id,),
             ).fetchone()
         return _hydrate_worker(row) if row is not None else None
@@ -270,8 +370,8 @@ class WorkflowWorkerRunRepo:
     def list_for_run(self, workflow_run_id: str) -> list[dict[str, Any]]:
         with self._connector.connect() as conn:
             rows = conn.execute(
-                """
-                SELECT * FROM workflow_worker_runs
+                f"""
+                SELECT {self.SELECT_COLUMNS} FROM workflow_worker_runs
                 WHERE workflow_run_id = ?
                 ORDER BY created_at ASC, worker_index ASC
                 """,
@@ -280,5 +380,22 @@ class WorkflowWorkerRunRepo:
         return [_hydrate_worker(row) for row in rows]
 
 
+def _hydrate_run(row: Any) -> dict[str, Any]:
+    return dict(row) | {
+        "inputs": loads(row["inputs_json"]),
+        "metadata": loads(row["metadata_json"]),
+    }
+
+
+def _hydrate_phase(row: Any) -> dict[str, Any]:
+    return dict(row) | {
+        "outputs": loads(row["outputs_json"]) or [],
+        "metadata": loads(row["metadata_json"]),
+    }
+
+
 def _hydrate_worker(row: Any) -> dict[str, Any]:
-    return dict(row) | {"metadata": loads(row["metadata_json"])}
+    return dict(row) | {
+        "cache_hit": bool(row["cache_hit"]),
+        "metadata": loads(row["metadata_json"]),
+    }

@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import threading
-from collections.abc import Coroutine
 from typing import Literal
 
 from langchain_core.tools import tool
@@ -63,6 +61,34 @@ class CreateAgentTeamArgs(BaseModel):
 class RunAgentWorkflowArgs(BaseModel):
     workflow_yaml: str = Field(..., min_length=1)
     inputs: dict[str, object] = Field(default_factory=dict)
+
+
+class RunAgentTeamArgs(BaseModel):
+    team_id: str = Field(..., min_length=1)
+    max_concurrency: int = Field(default=4, ge=1, le=16)
+
+
+class AgentTeamStatusArgs(BaseModel):
+    team_run_id: str = Field(..., min_length=1)
+
+
+class CancelAgentTeamRunArgs(BaseModel):
+    team_run_id: str = Field(..., min_length=1)
+    reason: str = ""
+
+
+class AgentWorkflowStatusArgs(BaseModel):
+    workflow_run_id: str = Field(..., min_length=1)
+
+
+class CancelAgentWorkflowRunArgs(BaseModel):
+    workflow_run_id: str = Field(..., min_length=1)
+    reason: str = ""
+
+
+class RerunFailedWorkflowPhaseArgs(BaseModel):
+    workflow_run_id: str = Field(..., min_length=1)
+    phase_run_id: str = Field(..., min_length=1)
 
 
 @tool(args_schema=SkillProposeArgs)
@@ -261,6 +287,112 @@ def create_agent_team(
     )
 
 
+@tool(args_schema=RunAgentTeamArgs)
+def run_agent_team(team_id: str, max_concurrency: int = 4) -> str:
+    """Start an agent team run and return a polling handle."""
+
+    context = runtime_context()
+    if not context.get("approval_granted"):
+        return json.dumps(
+            {
+                "status": "queued",
+                "team_id": team_id,
+                "team_run_id": "",
+                "summary": "Agent team execution is queued for approval.",
+            },
+            ensure_ascii=False,
+            default=str,
+        )
+    session_id = str(context.get("session_id") or "")
+    parent_run_id = _context_run_id(context)
+    if not session_id or not parent_run_id:
+        raise ValueError("session_id and run_id are required to run an agent team")
+
+    store = get_agent_store()
+    team = store.agent_teams.get(team_id)
+    if team is None:
+        raise ValueError(f"unknown team: {team_id}")
+    team_run = store.agent_team_runs.create(
+        team_id=team_id,
+        parent_session_id=session_id,
+        parent_run_id=parent_run_id,
+        approval_id=str(context.get("approval_id") or ""),
+        goal=team["goal"],
+        metadata={"source": "tool", "max_concurrency": max_concurrency},
+    )
+    _enqueue_team_run(store, team_run["id"], max_concurrency=max_concurrency)
+    return json.dumps(
+        {
+            "status": store.agent_team_runs.get(team_run["id"])["status"],
+            "team_id": team_id,
+            "team_run_id": team_run["id"],
+            "summary": "Agent team run enqueued.",
+        },
+        ensure_ascii=False,
+        default=str,
+    )
+
+
+@tool(args_schema=AgentTeamStatusArgs)
+def get_agent_team_status(team_run_id: str) -> str:
+    """Read agent team run status."""
+
+    store = get_agent_store()
+    team_run = store.agent_team_runs.get(team_run_id)
+    if team_run is None:
+        raise ValueError(f"unknown team run: {team_run_id}")
+    tasks = store.agent_team_tasks.list_for_team(team_run["team_id"])
+    return json.dumps(
+        {
+            "status": team_run["status"],
+            "team_id": team_run["team_id"],
+            "team_run_id": team_run_id,
+            "summary": team_run["summary"],
+            "tasks": [
+                {
+                    "id": task["id"],
+                    "title": task["title"],
+                    "status": task["status"],
+                    "subagent_run_id": task["result_subagent_id"],
+                }
+                for task in tasks
+            ],
+        },
+        ensure_ascii=False,
+        default=str,
+    )
+
+
+@tool(args_schema=CancelAgentTeamRunArgs)
+def cancel_agent_team_run(team_run_id: str, reason: str = "") -> str:
+    """Cancel a running or queued agent team run."""
+
+    context = runtime_context()
+    if not context.get("approval_granted"):
+        return json.dumps(
+            {
+                "status": "queued",
+                "team_run_id": team_run_id,
+                "summary": "Agent team cancellation is queued for approval.",
+            },
+            ensure_ascii=False,
+            default=str,
+        )
+    store = get_agent_store()
+    cancelled = _background_queue().cancel(team_run_id, reason=reason)
+    store.agent_team_runs.update(
+        team_run_id,
+        status="cancelled",
+        metadata_patch={"cancel_reason": reason},
+        finished=True,
+    )
+    return json.dumps(
+        {"status": "cancelled", "team_run_id": team_run_id, "active_cancelled": cancelled},
+        ensure_ascii=False,
+        default=str,
+    )
+
+
 @tool(args_schema=RunAgentWorkflowArgs)
 def run_agent_workflow(
     workflow_yaml: str,
@@ -289,32 +421,133 @@ def run_agent_workflow(
     if not session_id or not parent_run_id:
         raise ValueError("session_id and run_id are required to run an agent workflow")
 
-    from ..workflows import WorkflowRuntime, load_workflow_spec_text
+    from ..workflows import load_workflow_spec_text
 
     spec = load_workflow_spec_text(workflow_yaml)
-    result = _run_coro_sync(
-        WorkflowRuntime(get_agent_store()).run(
-            spec,
-            parent_session_id=session_id,
-            parent_run_id=parent_run_id,
-            inputs=dict(inputs or {}),
-            parent_metadata=parent_metadata,
-        )
+    store = get_agent_store()
+    store.workflow_specs.upsert(
+        spec_id=spec.id,
+        name=spec.name,
+        description=spec.description,
+        spec=spec.as_dict(),
+        metadata=spec.metadata,
     )
-    child_refs = [
-        {
-            "subagent_run_id": row["subagent_run_id"],
-            "child_session_id": row["child_session_id"],
-            "status": row["status"],
-        }
-        for row in get_agent_store().workflow_worker_runs.list_for_run(result.workflow_run_id)
-    ]
+    run = store.workflow_runs.create(
+        spec_id=spec.id,
+        parent_session_id=session_id,
+        parent_run_id=parent_run_id,
+        inputs=dict(inputs or {}),
+        metadata={**parent_metadata, "workflow_yaml": workflow_yaml},
+    )
+    _enqueue_workflow_run(
+        store,
+        run["id"],
+        workflow_yaml=workflow_yaml,
+        inputs=dict(inputs or {}),
+        parent_metadata=parent_metadata,
+    )
     return json.dumps(
         {
-            "status": result.status,
-            "workflow_run_id": result.workflow_run_id,
-            "summary": result.summary,
-            "child_run_references": child_refs,
+            "status": store.workflow_runs.get(run["id"])["status"],
+            "workflow_run_id": run["id"],
+            "summary": "Agent workflow run enqueued.",
+            "child_run_references": [],
+        },
+        ensure_ascii=False,
+        default=str,
+    )
+
+
+@tool(args_schema=AgentWorkflowStatusArgs)
+def get_agent_workflow_status(workflow_run_id: str) -> str:
+    """Read agent workflow run status."""
+
+    store = get_agent_store()
+    run = store.workflow_runs.get(workflow_run_id)
+    if run is None:
+        raise ValueError(f"unknown workflow run: {workflow_run_id}")
+    phases = store.workflow_phase_runs.list_for_run(workflow_run_id)
+    workers = store.workflow_worker_runs.list_for_run(workflow_run_id)
+    return json.dumps(
+        {
+            "status": run["status"],
+            "workflow_run_id": workflow_run_id,
+            "summary": run["summary"],
+            "phases": [
+                {"id": phase["id"], "phase_id": phase["phase_id"], "status": phase["status"]}
+                for phase in phases
+            ],
+            "workers": [
+                {
+                    "id": worker["id"],
+                    "phase_run_id": worker["phase_run_id"],
+                    "status": worker["status"],
+                    "subagent_run_id": worker["subagent_run_id"],
+                }
+                for worker in workers
+            ],
+        },
+        ensure_ascii=False,
+        default=str,
+    )
+
+
+@tool(args_schema=CancelAgentWorkflowRunArgs)
+def cancel_agent_workflow_run(workflow_run_id: str, reason: str = "") -> str:
+    """Cancel a running or queued agent workflow run."""
+
+    context = runtime_context()
+    if not context.get("approval_granted"):
+        return json.dumps(
+            {
+                "status": "queued",
+                "workflow_run_id": workflow_run_id,
+                "summary": "Agent workflow cancellation is queued for approval.",
+            },
+            ensure_ascii=False,
+            default=str,
+        )
+    store = get_agent_store()
+    cancelled = _background_queue().cancel(workflow_run_id, reason=reason)
+    store.workflow_runs.update(
+        workflow_run_id,
+        status="stopped",
+        metadata_patch={"cancel_reason": reason},
+        finished=True,
+    )
+    return json.dumps(
+        {"status": "stopped", "workflow_run_id": workflow_run_id, "active_cancelled": cancelled},
+        ensure_ascii=False,
+        default=str,
+    )
+
+
+@tool(args_schema=RerunFailedWorkflowPhaseArgs)
+def rerun_failed_workflow_phase(workflow_run_id: str, phase_run_id: str) -> str:
+    """Record a request to rerun a failed workflow phase."""
+
+    context = runtime_context()
+    if not context.get("approval_granted"):
+        return json.dumps(
+            {
+                "status": "queued",
+                "workflow_run_id": workflow_run_id,
+                "phase_run_id": phase_run_id,
+                "summary": "Workflow phase rerun is queued for approval.",
+            },
+            ensure_ascii=False,
+            default=str,
+        )
+    store = get_agent_store()
+    phase = store.workflow_phase_runs.get(phase_run_id)
+    if phase is None or phase["workflow_run_id"] != workflow_run_id:
+        raise ValueError(f"unknown phase run: {phase_run_id}")
+    store.workflow_phase_runs.update(phase_run_id, status="queued", outputs=[])
+    return json.dumps(
+        {
+            "status": "queued",
+            "workflow_run_id": workflow_run_id,
+            "phase_run_id": phase_run_id,
         },
         ensure_ascii=False,
         default=str,
@@ -326,25 +559,63 @@ def _context_run_id(context: dict[str, object]) -> str:
     return str(context.get("run_id") or metadata.get("run_id") or "")
 
 
-def _run_coro_sync(coro: Coroutine[object, object, object]) -> object:
+def _background_queue():
+    from ..runtime.background_tasks import BackgroundRunQueue
+
+    global _BACKGROUND_QUEUE
+    try:
+        return _BACKGROUND_QUEUE
+    except NameError:
+        _BACKGROUND_QUEUE = BackgroundRunQueue()
+        return _BACKGROUND_QUEUE
+
+
+def _enqueue_team_run(store, team_run_id: str, *, max_concurrency: int) -> None:
     try:
         asyncio.get_running_loop()
     except RuntimeError:
-        return asyncio.run(coro)
+        return
 
-    result: object = None
-    error: BaseException | None = None
+    from ..teams import TeamRuntime
 
-    def run_in_thread() -> None:
-        nonlocal result, error
-        try:
-            result = asyncio.run(coro)
-        except BaseException as exc:  # noqa: BLE001 - re-raised in caller thread.
-            error = exc
+    async def run(token):
+        return await TeamRuntime(store, max_concurrency=max_concurrency).run(
+            team_run_id,
+            cancellation_token=token,
+        )
 
-    thread = threading.Thread(target=run_in_thread, daemon=True)
-    thread.start()
-    thread.join()
-    if error is not None:
-        raise error
-    return result
+    _background_queue().enqueue(team_run_id, "team", run)
+
+
+def _enqueue_workflow_run(
+    store,
+    workflow_run_id: str,
+    *,
+    workflow_yaml: str,
+    inputs: dict[str, object],
+    parent_metadata: dict[str, object],
+) -> None:
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return
+
+    from ..workflows import WorkflowRuntime, load_workflow_spec_text
+
+    spec = load_workflow_spec_text(workflow_yaml)
+    run = store.workflow_runs.get(workflow_run_id)
+    if run is None:
+        return
+
+    async def execute(token):
+        return await WorkflowRuntime(store).run(
+            spec,
+            parent_session_id=run["parent_session_id"],
+            parent_run_id=run["parent_run_id"],
+            inputs=dict(inputs or {}),
+            parent_metadata=dict(parent_metadata or {}),
+            workflow_run_id=workflow_run_id,
+            cancellation_token=token,
+        )
+
+    _background_queue().enqueue(workflow_run_id, "workflow", execute)

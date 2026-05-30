@@ -27,6 +27,9 @@ _RECURSIVE_TOOL_NAMES = {
     "create_agent_team",
     "get_agent_team_status",
     "get_agent_workflow_status",
+    "cancel_agent_team_run",
+    "cancel_agent_workflow_run",
+    "rerun_failed_workflow_phase",
     "run_agent_team",
     "run_agent_workflow",
 }
@@ -134,6 +137,15 @@ class ChildRunService:
             attempt_index=request.attempt_index,
             metadata=metadata,
             status="running",
+            role_id=role.id,
+            agent_definition_id=role.id,
+            team_id=context.team_id,
+            team_run_id=str(metadata.get("team_run_id") or ""),
+            team_task_id=context.team_task_id,
+            workflow_run_id=context.workflow_run_id,
+            phase_run_id=context.phase_run_id,
+            workflow_phase_id=context.workflow_phase_id,
+            approval_id=context.approval_id,
         )
 
         prompt = _build_prompt(role=role, task=request.task, reason=request.reason)
@@ -149,6 +161,8 @@ class ChildRunService:
                 record["id"],
                 status="failed",
                 final_response=final_response,
+                error_type=type(exc).__name__,
+                error_message=str(exc),
                 metadata_patch={"error_type": type(exc).__name__},
                 finished=True,
             )
@@ -222,6 +236,9 @@ def _is_recursive_spawning_tool(name: str) -> bool:
                 "create_agent_workflow",
                 "get_agent_team_status",
                 "get_agent_workflow_status",
+                "cancel_agent_team_run",
+                "cancel_agent_workflow_run",
+                "rerun_failed_workflow_phase",
                 "run_agent_team",
                 "run_agent_workflow",
             )

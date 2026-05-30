@@ -106,6 +106,38 @@ tools:
     risk: medium
     summary_template: "运行 Agent Workflow"
 
+  run_agent_team:
+    approval: always
+    unrestricted_bypass: false
+    risk: medium
+    summary_template: "运行 Agent Team"
+
+  get_agent_team_status:
+    approval: never
+    risk: low
+
+  cancel_agent_team_run:
+    approval: always
+    unrestricted_bypass: false
+    risk: medium
+    summary_template: "取消 Agent Team Run"
+
+  get_agent_workflow_status:
+    approval: never
+    risk: low
+
+  cancel_agent_workflow_run:
+    approval: always
+    unrestricted_bypass: false
+    risk: medium
+    summary_template: "取消 Agent Workflow Run"
+
+  rerun_failed_workflow_phase:
+    approval: always
+    unrestricted_bypass: false
+    risk: medium
+    summary_template: "重跑失败 Workflow Phase"
+
   create_xhs_content_job:
     approval: never
     risk: low
