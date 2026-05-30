@@ -8,6 +8,7 @@ parent/child wiring, the score computation, and the merger.
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -23,6 +24,7 @@ from app.agent_framework.subagents import (
     subagent_summary_section,
 )
 from app.agent_framework.tool_runtime import ToolRegistry
+from app.agent_framework.workers.context import ChildRunContext
 
 
 def _store() -> PostgresAgentStore:
@@ -48,6 +50,11 @@ def _fake_runner(response: str):
         return {"final_response": response, "status": "completed"}
 
     return runner
+
+
+def _write_agent(path: Path, body: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(body, encoding="utf-8")
 
 
 # ---------------------------------------------------------------- roles
@@ -76,6 +83,93 @@ def test_registry_for_role_is_scoped() -> None:
 def test_registry_for_role_unknown_raises() -> None:
     with pytest.raises(KeyError):
         registry_for_role("evil-overlord")
+
+
+def test_registry_for_role_uses_workspace_definition_from_child_context(
+    tmp_path: Path,
+) -> None:
+    _write_agent(
+        tmp_path / ".tommy" / "agents" / "reviewer.md",
+        """---
+id: reviewer
+title: Workspace Reviewer
+tools:
+  - read_workspace_file
+---
+Use workspace reviewer instructions.
+""",
+    )
+    child_context = ChildRunContext(
+        parent_session_id="sess-1",
+        parent_run_id="run-1",
+        subagent_role="reviewer",
+        working_directory=str(tmp_path),
+    )
+
+    registry = registry_for_role("reviewer", child_context=child_context)
+    names = {tool.name for tool in registry.tools}
+
+    assert names == {"read_workspace_file"}
+
+
+def test_resolve_role_preserves_definition_runtime_metadata(tmp_path: Path) -> None:
+    _write_agent(
+        tmp_path / ".tommy" / "agents" / "reviewer.md",
+        """---
+id: reviewer
+title: Workspace Reviewer
+tools:
+  - read_workspace_file
+disallowed_tools:
+  - write_local_file
+max_turns: 4
+max_wall_seconds: 30
+model: deepseek-chat
+permission_mode: read_only
+---
+Use workspace reviewer instructions.
+""",
+    )
+    child_context = ChildRunContext(
+        parent_session_id="sess-1",
+        parent_run_id="run-1",
+        subagent_role="reviewer",
+        working_directory=str(tmp_path),
+    )
+
+    from app.agent_framework.subagents import resolve_role
+
+    role = resolve_role("reviewer", child_context=child_context)
+
+    assert role.title == "Workspace Reviewer"
+    assert role.system_prompt == "Use workspace reviewer instructions."
+    assert role.tool_names == ("read_workspace_file",)
+    assert role.max_turns == 4
+    assert role.max_wall_seconds == 30.0
+    assert role.model == "deepseek-chat"
+
+
+def test_context_aware_role_validation_rejects_unknown_tools(tmp_path: Path) -> None:
+    _write_agent(
+        tmp_path / ".tommy" / "agents" / "reviewer.md",
+        """---
+id: reviewer
+title: Workspace Reviewer
+tools:
+  - missing_tool
+---
+Use workspace reviewer instructions.
+""",
+    )
+    child_context = ChildRunContext(
+        parent_session_id="sess-1",
+        parent_run_id="run-1",
+        subagent_role="reviewer",
+        working_directory=str(tmp_path),
+    )
+
+    with pytest.raises(ValueError, match="unknown tool"):
+        registry_for_role("reviewer", child_context=child_context)
 
 
 # ----------------------------------------------------------- score
@@ -134,6 +228,48 @@ def test_delegator_creates_child_session_and_records_subagent_run() -> None:
     assert row["metadata"]["citations_count"] == 1
     assert row["metadata"]["tool_scope"]
     assert "write_local_file" not in row["metadata"]["tool_scope"]
+
+
+def test_delegator_parent_metadata_enables_workspace_role_override(
+    tmp_path: Path,
+) -> None:
+    _write_agent(
+        tmp_path / ".tommy" / "agents" / "reviewer.md",
+        """---
+id: reviewer
+title: Workspace Reviewer
+tools:
+  - read_workspace_file
+---
+WORKSPACE REVIEWER PROMPT.
+""",
+    )
+    store = _store()
+    parent_session_id, parent_run_id = _new_session(store)
+    seen: dict[str, Any] = {}
+
+    def runner(
+        prompt: str,
+        registry: ToolRegistry,
+        role: SubagentRole,
+        thread_config: dict[str, Any],
+    ) -> dict[str, Any]:
+        seen["prompt"] = prompt
+        seen["role"] = role.title
+        return {"final_response": "reviewed", "status": "completed"}
+
+    delegator = SubagentDelegator(store, runner=runner)
+    result = delegator.dispatch(
+        task="review X",
+        role_id="reviewer",
+        parent_session_id=parent_session_id,
+        parent_run_id=parent_run_id,
+        parent_metadata={"frontend_settings": {"workingDirectory": str(tmp_path)}},
+    )
+
+    assert result.status == "completed"
+    assert seen["role"] == "Workspace Reviewer"
+    assert "WORKSPACE REVIEWER PROMPT." in seen["prompt"]
 
 
 def test_delegator_records_failures_without_raising() -> None:

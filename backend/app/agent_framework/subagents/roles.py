@@ -11,20 +11,13 @@ whitelist.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from ..agents import AgentDefinition, load_agent_registry
-from ..tool_runtime import (
-    ToolRegistry,
-    get_current_time,
-    list_local_directory,
-    list_workspace,
-    read_local_file,
-    read_workspace_file,
-    skill_propose,
-    web_search,
-    write_local_file,
-)
+from ..agents import AgentDefinition, AgentDefinitionResolver, AgentResolutionContext
+from ..tool_runtime import ToolRegistry, create_default_registry
+
+if TYPE_CHECKING:
+    from ..workers.context import ChildRunContext
 
 
 @dataclass(frozen=True)
@@ -47,16 +40,8 @@ def _registry(*tools: object) -> ToolRegistry:
     return ToolRegistry(tools=tuple(tools))  # type: ignore[arg-type]
 
 
-_TOOLS_BY_NAME = {
-    "get_current_time": get_current_time,
-    "web_search": web_search,
-    "read_workspace_file": read_workspace_file,
-    "list_workspace": list_workspace,
-    "read_local_file": read_local_file,
-    "list_local_directory": list_local_directory,
-    "skill_propose": skill_propose,
-    "write_local_file": write_local_file,
-}
+def _tools_by_name() -> dict[str, object]:
+    return dict(create_default_registry().by_name)
 
 
 def _role_from_definition(definition: AgentDefinition) -> SubagentRole:
@@ -75,10 +60,22 @@ def _role_from_definition(definition: AgentDefinition) -> SubagentRole:
 
 
 def _roles() -> dict[str, SubagentRole]:
-    registry = load_agent_registry(known_tool_names=set(_TOOLS_BY_NAME))
+    tools_by_name = _tools_by_name()
+    resolver = AgentDefinitionResolver(known_tool_names=set(tools_by_name))
     return {
-        definition_id: _role_from_definition(definition)
-        for definition_id, definition in registry.as_dict().items()
+        role_id: _role_from_definition(
+            resolver.resolve(role_id, AgentResolutionContext())
+        )
+        for role_id in (
+            "researcher",
+            "analyst",
+            "writer",
+            "architect",
+            "reviewer",
+            "tester",
+            "explorer",
+            "implementer",
+        )
     }
 
 
@@ -93,19 +90,52 @@ def list_role_ids() -> list[str]:
 
 
 def get_role(role_id: str) -> SubagentRole:
-    roles = _roles()
-    if role_id not in roles:
-        raise KeyError(f"unknown subagent role: {role_id}")
-    return roles[role_id]
+    return resolve_role(role_id)
 
 
-def registry_for_role(role_id: str) -> ToolRegistry:
+def resolve_role(
+    role_id: str,
+    *,
+    child_context: ChildRunContext | None = None,
+    agent_id: str = "default",
+    workspace_dir: str = "",
+) -> SubagentRole:
+    """Resolve a subagent role against built-in, data, and workspace definitions."""
+
+    effective_agent_id = child_context.parent_agent_id if child_context is not None else agent_id
+    effective_workspace = (
+        child_context.working_directory if child_context is not None else workspace_dir
+    )
+    resolver = AgentDefinitionResolver(known_tool_names=set(_tools_by_name()))
+    definition = resolver.resolve(
+        role_id,
+        AgentResolutionContext(
+            agent_id=effective_agent_id or "default",
+            workspace_dir=effective_workspace or "",
+        ),
+    )
+    return _role_from_definition(definition)
+
+
+def registry_for_role(
+    role_id: str,
+    *,
+    child_context: ChildRunContext | None = None,
+    agent_id: str = "default",
+    workspace_dir: str = "",
+) -> ToolRegistry:
     """Build the bounded :class:`ToolRegistry` for a role."""
 
-    role = get_role(role_id)
+    role = resolve_role(
+        role_id,
+        child_context=child_context,
+        agent_id=agent_id,
+        workspace_dir=workspace_dir,
+    )
+    tools_by_name = _tools_by_name()
     tools: list[object] = []
     for name in role.tool_names:
-        impl = _TOOLS_BY_NAME.get(name)
+        impl = tools_by_name.get(name)
         if impl is not None:
             tools.append(impl)
     return _registry(*tools)

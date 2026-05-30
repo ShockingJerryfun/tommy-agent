@@ -5,10 +5,12 @@ from __future__ import annotations
 import asyncio
 import inspect
 from collections.abc import Sequence
+from dataclasses import replace
 
 from ..storage import PostgresAgentStore
 from ..subagents import SubagentDelegator
 from ..subagents.delegate import SubagentResult
+from .context import derive_child_context
 from .runner import WorkerRunner
 from .types import WorkerResult, WorkerTask
 
@@ -52,6 +54,7 @@ class WorkerPool:
             return index, await self._run_one(task)
 
     async def _run_one(self, task: WorkerTask) -> WorkerResult:
+        task = _ensure_child_context(task)
         if self._parent_run_stopped(task):
             return _stopped_result(task)
         try:
@@ -79,6 +82,9 @@ class WorkerPool:
             agent_id=task.agent_id,
             reason=task.reason,
             attempt_index=task.attempt_index,
+            approval_id=task.approval_id,
+            child_context=task.child_context,
+            parent_metadata=task.metadata,
         )
 
     def _parent_run_stopped(self, task: WorkerTask) -> bool:
@@ -105,6 +111,22 @@ def _coerce_result(task: WorkerTask, result: WorkerResult | SubagentResult) -> W
         score=result.score,
         metadata=dict(result.metadata or {}),
     )
+
+
+def _ensure_child_context(task: WorkerTask) -> WorkerTask:
+    if task.child_context is not None:
+        return task
+    parent_metadata = dict(task.metadata or {})
+    if task.approval_id and "approval_id" not in parent_metadata:
+        parent_metadata["approval_id"] = task.approval_id
+    child_context = derive_child_context(
+        parent_session_id=task.parent_session_id,
+        parent_run_id=task.parent_run_id,
+        parent_agent_id=task.agent_id,
+        parent_metadata=parent_metadata,
+        role_id=task.role_id,
+    )
+    return replace(task, child_context=child_context, metadata=parent_metadata)
 
 
 def _failed_result(task: WorkerTask, exc: Exception) -> WorkerResult:

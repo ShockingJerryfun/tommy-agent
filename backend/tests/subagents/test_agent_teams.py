@@ -65,6 +65,9 @@ async def test_run_team_with_fake_worker_persists_results_and_summary() -> None:
     parent_session_id, parent_run_id = _new_session(store)
 
     async def runner(task: WorkerTask) -> WorkerResult:
+        assert task.child_context is not None
+        assert task.child_context.team_id
+        assert task.child_context.team_task_id == task.id
         return WorkerResult(
             task_id=task.id,
             subagent_id=f"sub-{task.id}",

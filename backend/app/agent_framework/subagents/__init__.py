@@ -36,6 +36,7 @@ from .roles import (
     SubagentRole,
     list_role_ids,
     registry_for_role,
+    resolve_role,
     role_registry,
 )
 from .summary import (
@@ -61,6 +62,7 @@ __all__ = [
     "list_recent_summaries",
     "list_role_ids",
     "registry_for_role",
+    "resolve_role",
     "role_registry",
     "run_delegate_task",
     "run_hermes_delegate",

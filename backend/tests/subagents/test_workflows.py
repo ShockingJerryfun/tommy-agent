@@ -156,6 +156,14 @@ phases:
     assert result.workflow_run_id
     assert len(calls) == 3
     assert [call.role_id for call in calls] == ["explorer", "explorer", "architect"]
+    assert all(call.child_context is not None for call in calls)
+    assert {call.child_context.workflow_run_id for call in calls if call.child_context} == {
+        result.workflow_run_id
+    }
+    assert {call.child_context.workflow_phase_id for call in calls if call.child_context} == {
+        "inspect",
+        "synthesize",
+    }
     run = store.workflow_runs.get(result.workflow_run_id)
     assert run is not None
     assert run["status"] == "completed"

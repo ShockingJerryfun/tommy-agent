@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from .context import ChildRunContext
+
 
 @dataclass(frozen=True)
 class WorkerTask:
@@ -17,6 +19,8 @@ class WorkerTask:
     agent_id: str = "default"
     metadata: dict[str, Any] = field(default_factory=dict)
     attempt_index: int = 0
+    child_context: ChildRunContext | None = None
+    approval_id: str = ""
 
 
 @dataclass(frozen=True)

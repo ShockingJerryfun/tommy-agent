@@ -12,6 +12,7 @@ from app.agent_framework.storage import PostgresAgentStore
 from app.agent_framework.subagents import BestOfNMerger, SubagentDelegator, SubagentRole
 from app.agent_framework.tool_runtime import ToolRegistry
 from app.agent_framework.workers import WorkerPool, WorkerResult, WorkerTask
+from app.agent_framework.workers.context import ChildRunContext
 
 
 def _store() -> PostgresAgentStore:
@@ -193,6 +194,82 @@ async def test_worker_pool_default_runner_uses_subagent_delegator() -> None:
     assert results[0].status == "completed"
     assert results[0].final_response == "researcher done"
     assert store.subagent_runs.list_for_session(parent_session_id)
+
+
+@pytest.mark.asyncio
+async def test_worker_pool_passes_supplied_child_context_to_delegator() -> None:
+    context = ChildRunContext(
+        parent_session_id="sess-parent",
+        parent_run_id="run-parent",
+        subagent_role="reviewer",
+        team_id="team-1",
+    )
+    captured: dict[str, Any] = {}
+
+    class CapturingDelegator:
+        def dispatch(self, **kwargs: Any):
+            captured.update(kwargs)
+            from app.agent_framework.subagents import SubagentResult
+
+            return SubagentResult(
+                subagent_id="sub-1",
+                child_session_id="child-1",
+                role=kwargs["role_id"],
+                status="completed",
+                final_response="ok",
+            )
+
+    task = WorkerTask(
+        id="task-1",
+        role_id="reviewer",
+        task="review",
+        reason="test",
+        parent_session_id="sess-parent",
+        parent_run_id="run-parent",
+        child_context=context,
+        approval_id="approval-1",
+    )
+
+    results = await WorkerPool(delegator=CapturingDelegator()).run([task])  # type: ignore[arg-type]
+
+    assert results[0].status == "completed"
+    assert captured["child_context"] is context
+    assert captured["approval_id"] == "approval-1"
+
+
+@pytest.mark.asyncio
+async def test_worker_pool_derives_child_context_before_custom_runner() -> None:
+    seen: list[WorkerTask] = []
+
+    async def runner(task: WorkerTask) -> WorkerResult:
+        seen.append(task)
+        assert task.child_context is not None
+        assert task.child_context.team_id == "team-1"
+        assert task.child_context.team_task_id == "team-task-1"
+        assert task.child_context.approval_id == "approval-1"
+        return WorkerResult(
+            task_id=task.id,
+            subagent_id="sub",
+            child_session_id="child",
+            role_id=task.role_id,
+            status="completed",
+            final_response="ok",
+        )
+
+    task = WorkerTask(
+        id="team-task-1",
+        role_id="reviewer",
+        task="review",
+        reason="test",
+        parent_session_id="sess-parent",
+        parent_run_id="run-parent",
+        metadata={"team_id": "team-1", "team_task_id": "team-task-1"},
+        approval_id="approval-1",
+    )
+
+    await WorkerPool(runner=runner).run([task])
+
+    assert seen[0].child_context is not None
 
 
 def test_best_of_n_behavior_still_works_after_worker_pool_addition() -> None:

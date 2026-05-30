@@ -15,16 +15,16 @@ tests for deterministic ``fake`` runners.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
-
-from langchain_core.messages import AIMessage, HumanMessage
+from typing import TYPE_CHECKING, Any
 
 from ..storage import PostgresAgentStore
 from ..tool_runtime import ToolRegistry
-from .roles import SubagentRole, get_role, registry_for_role
+from .roles import SubagentRole
+
+if TYPE_CHECKING:
+    from ..workers.context import ChildRunContext
 
 
 @dataclass
@@ -57,17 +57,6 @@ Returns a dict with at least ``final_response: str`` and optionally
 """
 
 
-_CITATION_RX = re.compile(r"https?://\S+|\[[^\]]+\]\([^)]+\)")
-
-
-def _build_prompt(*, role: SubagentRole, task: str, reason: str) -> str:
-    return (
-        f"{role.system_prompt}\n\n"
-        f"Reason for delegation: {reason or 'not specified'}\n\n"
-        f"Task:\n{task}"
-    )
-
-
 def default_subagent_runner(
     prompt: str,
     registry: ToolRegistry,
@@ -76,36 +65,9 @@ def default_subagent_runner(
 ) -> dict[str, Any]:
     """Production runner: real LangGraph + Postgres checkpointer."""
 
-    from ..agent import build_agent_graph
-    from ..runtime.checkpointing import create_checkpointer
+    from ..workers.child_run_service import default_subagent_runner as run_child
 
-    graph = build_agent_graph(registry=registry, checkpointer=create_checkpointer())
-    state = graph.invoke(
-        {
-            "session_id": str(thread_config.get("configurable", {}).get("thread_id", "")),
-            "agent_id": "default",
-            "metadata": {
-                "subagent_role": role.id,
-                "budget": {
-                    "max_turns": role.max_turns,
-                    "max_wall_seconds": role.max_wall_seconds,
-                },
-            },
-            "messages": [HumanMessage(content=prompt)],
-        },
-        config=thread_config,
-    )
-    final = ""
-    for message in reversed(state.get("messages", [])):
-        if isinstance(message, AIMessage) and message.content:
-            final = str(message.content)
-            break
-    return {
-        "final_response": final,
-        "messages": state.get("messages", []),
-        "intermediate_steps": state.get("intermediate_steps", []),
-        "status": "completed",
-    }
+    return run_child(prompt, registry, role, thread_config)
 
 
 class SubagentDelegator:
@@ -116,7 +78,7 @@ class SubagentDelegator:
         runner: SubagentRunner | None = None,
     ) -> None:
         self.store = store
-        self._runner = runner or default_subagent_runner
+        self._runner = runner
 
     def dispatch(
         self,
@@ -129,92 +91,41 @@ class SubagentDelegator:
         reason: str = "",
         attempt_index: int = 0,
         approval_id: str = "",
+        child_context: ChildRunContext | None = None,
+        parent_metadata: dict[str, Any] | None = None,
     ) -> SubagentResult:
-        role = get_role(role_id)
+        if child_context is None:
+            from ..workers.context import derive_child_context
 
-        if self.store.explicit_stop_requested(session_id=parent_session_id, run_id=parent_run_id):
-            return SubagentResult(
-                subagent_id="",
-                child_session_id="",
-                role=role.id,
-                status="stopped",
-                final_response="",
+            overrides = {"approval_id": approval_id} if approval_id else None
+            child_context = derive_child_context(
+                parent_session_id=parent_session_id,
+                parent_run_id=parent_run_id,
+                parent_agent_id=agent_id,
+                parent_metadata=parent_metadata,
+                role_id=role_id,
+                overrides=overrides,
             )
 
-        child_session_id = self.store.create_session(
-            agent_id=agent_id,
-            title=f"sub:{role.id}:{parent_session_id[:8]}",
-            metadata={
-                "subagent": True,
-                "role": role.id,
-                "parent_session_id": parent_session_id,
-                "parent_run_id": parent_run_id,
-                "approval_id": approval_id,
-                "attempt_index": attempt_index,
-            },
-        )
+        from ..workers.child_run_service import ChildRunRequest, ChildRunService
 
-        record = self.store.subagent_runs.create(
-            parent_session_id=parent_session_id,
-            parent_run_id=parent_run_id,
-            child_session_id=child_session_id,
-            role=role.id,
-            task=task,
-            attempt_index=attempt_index,
-            metadata={
-                "approval_id": approval_id,
-                "reason": reason,
-                "tool_scope": list(role.tool_names),
-            },
-            status="running",
-        )
-
-        registry = registry_for_role(role.id)
-        prompt = _build_prompt(role=role, task=task, reason=reason)
-        thread_config = {"configurable": {"thread_id": child_session_id}}
-
-        try:
-            result = self._runner(prompt, registry, role, thread_config)
-        except Exception as exc:  # noqa: BLE001 — surface the failure on the row.
-            self.store.subagent_runs.update(
-                record["id"],
-                status="failed",
-                final_response=f"runner error: {exc}",
-                finished=True,
+        worker_result = ChildRunService(self.store, runner=self._runner).run(
+            ChildRunRequest(
+                task=task,
+                role_id=role_id,
+                context=child_context,
+                attempt_index=attempt_index,
+                reason=reason,
             )
-            return SubagentResult(
-                subagent_id=record["id"],
-                child_session_id=child_session_id,
-                role=role.id,
-                status="failed",
-                final_response=f"runner error: {exc}",
-            )
-
-        final = str(result.get("final_response") or "")
-        citations = len(_CITATION_RX.findall(final))
-        status = str(result.get("status") or "completed")
-
-        from .merger import score_response
-
-        score = score_response(final, citations_count=citations)
-        self.store.subagent_runs.update(
-            record["id"],
-            status=status,
-            score=score,
-            final_response=final,
-            metadata_patch={
-                "citations_count": citations,
-                "response_chars": len(final),
-            },
-            finished=True,
         )
+        metadata = dict(worker_result.metadata or {})
         return SubagentResult(
-            subagent_id=record["id"],
-            child_session_id=child_session_id,
-            role=role.id,
-            status=status,
-            final_response=final,
-            score=score,
-            citations_count=citations,
-            metadata={"tool_scope": list(role.tool_names)},
+            subagent_id=worker_result.subagent_id,
+            child_session_id=worker_result.child_session_id,
+            role=worker_result.role_id,
+            status=worker_result.status,
+            final_response=worker_result.final_response,
+            score=worker_result.score,
+            citations_count=int(metadata.get("citations_count") or 0),
+            metadata=metadata,
         )

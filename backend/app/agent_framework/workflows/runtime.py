@@ -68,6 +68,7 @@ class WorkflowRuntime:
                 worker_tasks = self._build_worker_tasks(
                     phase=phase,
                     phase_run_id=phase_run["id"],
+                    workflow_run_id=workflow_run_id,
                     parent_session_id=parent_session_id,
                     parent_run_id=parent_run_id,
                     inputs=resolved_inputs,
@@ -150,6 +151,7 @@ class WorkflowRuntime:
         *,
         phase: WorkflowPhaseSpec,
         phase_run_id: str,
+        workflow_run_id: str,
         parent_session_id: str,
         parent_run_id: str,
         inputs: dict[str, Any],
@@ -167,7 +169,11 @@ class WorkflowRuntime:
                     parent_session_id=parent_session_id,
                     parent_run_id=parent_run_id,
                     agent_id="default",
-                    metadata={"workflow_phase_id": phase.id, "phase_run_id": phase_run_id},
+                    metadata={
+                        "workflow_run_id": workflow_run_id,
+                        "workflow_phase_id": phase.id,
+                        "phase_run_id": phase_run_id,
+                    },
                     attempt_index=index,
                 )
             )
