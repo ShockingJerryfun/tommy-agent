@@ -1615,20 +1615,15 @@ export function AgentShell() {
     )
       return;
 
+    tokenFlushFrameRef.current = window.requestAnimationFrame(
+      flushPendingAssistantTokens,
+    );
     const elapsed = performance.now() - tokenLastFlushAtRef.current;
-    if (elapsed >= 16) {
-      tokenFlushFrameRef.current = window.requestAnimationFrame(
-        flushPendingAssistantTokens,
-      );
-      return;
-    }
-
+    const fallbackDelay = Math.max(16 - elapsed, 16);
     tokenFlushTimeoutRef.current = window.setTimeout(() => {
       tokenFlushTimeoutRef.current = null;
-      tokenFlushFrameRef.current = window.requestAnimationFrame(
-        flushPendingAssistantTokens,
-      );
-    }, 16 - elapsed);
+      flushPendingAssistantTokens();
+    }, fallbackDelay);
   }
 
   function appendAssistantReasoning(content: string) {
@@ -1799,7 +1794,17 @@ export function AgentShell() {
       return;
     }
 
+    if (payload.type === "message_delta") {
+      scheduleAssistantToken(String(data.content ?? ""));
+      return;
+    }
+
     if (payload.type === "reasoning") {
+      scheduleReasoningChunk(String(data.content ?? ""));
+      return;
+    }
+
+    if (payload.type === "reasoning_delta") {
       scheduleReasoningChunk(String(data.content ?? ""));
       return;
     }

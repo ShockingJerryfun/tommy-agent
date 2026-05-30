@@ -49,23 +49,66 @@ Runtime data is stored in PostgreSQL. Local secrets live in `backend/.env`; gene
 - Go 1.25+ for the local shell runner
 - Node.js 20+
 - npm
+- uv
 
 ## Quickstart
 
-### 1. Start PostgreSQL
+Run commands from the repository root unless a step says to `cd` elsewhere.
+
+### 1. Check local tools
+
+Install `uv` if it is missing:
+
+```bash
+python3 -m pip install uv
+```
+
+Use Node 20 for all frontend commands. This matters when an older `/usr/local/bin/node`
+appears earlier in `PATH`:
+
+```bash
+export PATH="/opt/homebrew/opt/node@20/bin:$PATH"
+node --version
+npm --version
+```
+
+If `go` is not installed globally, install a project-local Go toolchain:
+
+```bash
+mkdir -p .bin/toolchains .tmp
+curl -fL "https://go.dev/dl/go1.26.3.darwin-arm64.tar.gz" \
+  -o .tmp/go1.26.3.darwin-arm64.tar.gz
+rm -rf .bin/toolchains/go1.26.3 .bin/go
+tar -C .bin/toolchains -xzf .tmp/go1.26.3.darwin-arm64.tar.gz
+mv .bin/toolchains/go .bin/toolchains/go1.26.3
+ln -s toolchains/go1.26.3 .bin/go
+export PATH="$PWD/.bin/go/bin:$PATH"
+go version
+```
+
+### 2. Start PostgreSQL
+
+PostgreSQL only needs to be reachable on `127.0.0.1:5432`. If Homebrew works on
+your machine, use:
 
 ```bash
 brew services start postgresql@17
-/opt/homebrew/opt/postgresql@17/bin/createdb tommy_agent
+/opt/homebrew/opt/postgresql@17/bin/createdb tommy_agent 2>/dev/null || true
 ```
 
-If the service is already running, Homebrew will say so. Use `brew services restart postgresql@17` only when you need a restart.
+If Homebrew cannot start services, use whichever PostgreSQL installation is already
+on your `PATH` and create the database there:
 
-### 2. Configure the backend
+```bash
+pg_isready -h 127.0.0.1 -p 5432
+createdb -h 127.0.0.1 -p 5432 tommy_agent 2>/dev/null || true
+```
+
+### 3. Configure the backend
 
 ```bash
 cd backend
-cp .env.example .env
+test -f .env || cp .env.example .env
 ```
 
 Edit `backend/.env` and set:
@@ -76,33 +119,42 @@ DEEPSEEK_API_KEY=your_key_here
 # or another OpenAI-compatible provider key/base URL
 ```
 
-### 3. Run the backend
+### 4. Run the backend
 
 Build and start the Go shell runner sidecar in a separate terminal for the fastest
 local command execution path:
 
 ```bash
+export PATH="$PWD/.bin/go/bin:$PATH"
 cd runner
 go build -o bin/tommy-runner ./cmd/tommy-runner
 ./bin/tommy-runner serve --addr 127.0.0.1:8765
 ```
 
+Then start the backend in another terminal:
+
 ```bash
 cd backend
-uv sync
+uv sync --extra dev
+set -a
+source .env
+set +a
 TOMMY_GO_RUNNER_URL=http://127.0.0.1:8765 \
-  uv run uvicorn app.agent_framework.server.app:app --reload --host 0.0.0.0 --port 8000
+  .venv/bin/uvicorn app.agent_framework.server.app:app --reload --host 0.0.0.0 --port 8000
 ```
 
 If `TOMMY_GO_RUNNER_URL` is not set, the backend still executes shell tools through the
 Go runner CLI (`runner/bin/tommy-runner` when present, otherwise `go run`). Python no
 longer executes model-requested shell commands directly.
 
-### 4. Run the frontend
+### 5. Run the frontend
+
+Start the frontend in a third terminal:
 
 ```bash
 cd frontend
-npm install
+export PATH="/opt/homebrew/opt/node@20/bin:$PATH"
+npm ci
 npm run dev
 ```
 
@@ -113,6 +165,17 @@ NEXT_PUBLIC_AGENT_API_URL=http://127.0.0.1:8000 npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
+
+### 6. Verify the local app
+
+```bash
+curl -fsS http://127.0.0.1:8000/health
+curl -fsS -I http://127.0.0.1:3000
+curl -fsS http://127.0.0.1:3000/agent-api/health
+```
+
+All three commands should succeed. Stop the runner, backend, and frontend terminals
+with `Ctrl-C` when you are done.
 
 ## Development Commands
 
@@ -200,23 +263,64 @@ docs/
 - Go 1.25+，用于本地 shell runner
 - Node.js 20+
 - npm
+- uv
 
 ## 快速开始
 
-### 1. 启动 PostgreSQL
+除非步骤里特别 `cd` 到子目录，否则都从仓库根目录执行。
+
+### 1. 检查本地工具链
+
+如果没有 `uv`，先安装：
+
+```bash
+python3 -m pip install uv
+```
+
+前端命令必须使用 Node 20。如果旧的 `/usr/local/bin/node` 排在 `PATH` 前面，
+`npm run dev` 会误用旧 Node：
+
+```bash
+export PATH="/opt/homebrew/opt/node@20/bin:$PATH"
+node --version
+npm --version
+```
+
+如果没有全局 `go`，可以安装项目本地 Go 工具链：
+
+```bash
+mkdir -p .bin/toolchains .tmp
+curl -fL "https://go.dev/dl/go1.26.3.darwin-arm64.tar.gz" \
+  -o .tmp/go1.26.3.darwin-arm64.tar.gz
+rm -rf .bin/toolchains/go1.26.3 .bin/go
+tar -C .bin/toolchains -xzf .tmp/go1.26.3.darwin-arm64.tar.gz
+mv .bin/toolchains/go .bin/toolchains/go1.26.3
+ln -s toolchains/go1.26.3 .bin/go
+export PATH="$PWD/.bin/go/bin:$PATH"
+go version
+```
+
+### 2. 启动 PostgreSQL
+
+PostgreSQL 只需要能在 `127.0.0.1:5432` 访问。如果本机 Homebrew 可用：
 
 ```bash
 brew services start postgresql@17
-/opt/homebrew/opt/postgresql@17/bin/createdb tommy_agent
+/opt/homebrew/opt/postgresql@17/bin/createdb tommy_agent 2>/dev/null || true
 ```
 
-如果服务已经启动，Homebrew 会提示已启动。只有需要重启时才使用 `brew services restart postgresql@17`。
+如果 Homebrew services 因系统版本等原因不可用，使用当前 `PATH` 上已有的 PostgreSQL：
 
-### 2. 配置后端
+```bash
+pg_isready -h 127.0.0.1 -p 5432
+createdb -h 127.0.0.1 -p 5432 tommy_agent 2>/dev/null || true
+```
+
+### 3. 配置后端
 
 ```bash
 cd backend
-cp .env.example .env
+test -f .env || cp .env.example .env
 ```
 
 编辑 `backend/.env`，至少确认：
@@ -227,32 +331,41 @@ DEEPSEEK_API_KEY=your_key_here
 # 或其他 OpenAI 兼容模型服务的 key/base URL
 ```
 
-### 3. 启动后端
+### 4. 启动后端
 
 为了获得最快的本地命令执行路径，先在另一个终端构建并启动 Go shell runner：
 
 ```bash
+export PATH="$PWD/.bin/go/bin:$PATH"
 cd runner
 go build -o bin/tommy-runner ./cmd/tommy-runner
 ./bin/tommy-runner serve --addr 127.0.0.1:8765
 ```
 
+再在另一个终端启动后端：
+
 ```bash
 cd backend
-uv sync
+uv sync --extra dev
+set -a
+source .env
+set +a
 TOMMY_GO_RUNNER_URL=http://127.0.0.1:8765 \
-  uv run uvicorn app.agent_framework.server.app:app --reload --host 0.0.0.0 --port 8000
+  .venv/bin/uvicorn app.agent_framework.server.app:app --reload --host 0.0.0.0 --port 8000
 ```
 
 如果没有设置 `TOMMY_GO_RUNNER_URL`，后端仍会通过 Go runner CLI 执行 shell 工具
 （优先使用 `runner/bin/tommy-runner`，否则使用 `go run`）。Python 不再直接执行模型请求的
 shell 命令。
 
-### 4. 启动前端
+### 5. 启动前端
+
+第三个终端启动前端：
 
 ```bash
 cd frontend
-npm install
+export PATH="/opt/homebrew/opt/node@20/bin:$PATH"
+npm ci
 npm run dev
 ```
 
@@ -263,6 +376,17 @@ NEXT_PUBLIC_AGENT_API_URL=http://127.0.0.1:8000 npm run dev
 ```
 
 打开 [http://localhost:3000](http://localhost:3000)。
+
+### 6. 验证本地服务
+
+```bash
+curl -fsS http://127.0.0.1:8000/health
+curl -fsS -I http://127.0.0.1:3000
+curl -fsS http://127.0.0.1:3000/agent-api/health
+```
+
+三个命令都应该成功。用完后，在 runner、backend、frontend 三个终端里按
+`Ctrl-C` 关闭服务。
 
 ## 开发命令
 

@@ -41,6 +41,8 @@ node_modules/
 frontend/node_modules/
 .next/
 frontend/.next/
+.next-probe/
+frontend/.next-probe/
 .next-build/
 frontend/.next-build/
 out/
@@ -55,6 +57,7 @@ pnpm-debug.log*
 # Local tooling caches
 .cursor/settings.json
 .bin/
+runner/bin/
 .playwright-cli/
 .worktrees/
 .superpowers/

@@ -5,6 +5,8 @@ const BACKEND_API_BASE = (
 ).replace(/\/$/, "");
 
 const nextConfig: NextConfig = {
+  // Browser fetch streams can be buffered when SSE responses are gzipped.
+  compress: false,
   distDir: process.env.NEXT_DIST_DIR ?? ".next",
   devIndicators: false,
   reactStrictMode: true,
